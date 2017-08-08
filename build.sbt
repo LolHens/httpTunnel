@@ -20,15 +20,14 @@ inThisBuild(Seq(
 lazy val root = project.in(file("."))
   .settings(publishArtifact := false)
   .aggregate(
-    httpTunnelJVM_2_12
+    httpTunnel
   )
 
-lazy val httpTunnel = crossProject(JVMPlatform).crossType(CrossType.Full)
+lazy val httpTunnel = project
   .settings(name := (name in ThisBuild).value)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-http" % "10.0.9"
+      "com.typesafe.akka" %% "akka-http" % "10.0.9",
+      "io.monix" %% "monix" % "2.3.0"
     )
   )
-
-lazy val httpTunnelJVM_2_12 = httpTunnel.jvm.cross("2.12.3").settings(name := (name in ThisBuild).value)
