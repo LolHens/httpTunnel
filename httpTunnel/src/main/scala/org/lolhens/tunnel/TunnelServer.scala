@@ -20,9 +20,9 @@ object TunnelServer extends Tunnel {
           HttpResponse(entity = HttpEntity.Chunked.fromData(
             ContentTypes.`application/octet-stream`,
             entity.dataBytes
-              .map { e => println("REQUEST: " + e); e }
+              .map { e => system.log.debug("REQUEST: " + e); e }
               .via(Tcp().outgoingConnection(socketAddress.getHostString, socketAddress.getPort))
-              .map { e => println("RESPONSE: " + e); e }
+              .map { e => system.log.debug("RESPONSE: " + e); e }
           ))
         }.getOrElse(unknownResource)
       }

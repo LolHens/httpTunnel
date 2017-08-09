@@ -91,7 +91,7 @@ object TunnelClient extends Tunnel {
       val tcpServer = Tcp().bind("localhost", localPort).to(Sink.foreach { connection =>
         connection.handleWith(
           Flow[ByteString]
-            .map { e => println("REQUEST: " + e); e }
+            .map { e => system.log.debug("REQUEST: " + e); e }
             .via(httpStreamingRequest(
               tunnelServer.getHostString, tunnelServer.getPort,
               HttpRequest(GET, Uri(s"/${socketAddress.getHostString}:${socketAddress.getPort}")),
@@ -100,7 +100,7 @@ object TunnelClient extends Tunnel {
                 .getOrElse(ClientTransport.TCP),
               connectionContext = http
             ))
-            .map { e => println("RESPONSE: " + e); e }
+            .map { e => system.log.debug("RESPONSE: " + e); e }
         )
       }).run()
 
