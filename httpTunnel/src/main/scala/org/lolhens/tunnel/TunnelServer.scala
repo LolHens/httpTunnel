@@ -3,7 +3,8 @@ package org.lolhens.tunnel
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.HttpMethods.GET
 import akka.http.scaladsl.model._
-import akka.stream.scaladsl.Tcp
+import akka.stream.scaladsl.{Source, Tcp}
+import akka.util.ByteString
 
 import scala.concurrent.Future
 import scala.io.StdIn
@@ -20,6 +21,7 @@ object TunnelServer extends Tunnel {
           HttpResponse(entity = HttpEntity.Chunked.fromData(
             ContentTypes.`application/octet-stream`,
             entity.dataBytes
+              .prepend(Source.single(ByteString.fromString("asdfasdfasdf")))
               .map { e =>
                 //val bytes = ByteString.fromByteBuffer(Base64.getDecoder.decode(e.asByteBuffer))
                 system.log.debug("REQUEST: " + e)
