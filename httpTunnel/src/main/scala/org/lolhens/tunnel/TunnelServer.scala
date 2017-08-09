@@ -1,21 +1,14 @@
 package org.lolhens.tunnel
 
-import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.server.Directives.{get, handleWebSocketMessages, path, reject, _}
 import akka.http.scaladsl.server.Route
-import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.Tcp
 
-import scala.concurrent.ExecutionContext
 import scala.io.StdIn
 
 object TunnelServer extends Tunnel {
   def main(args: Array[String]): Unit = {
-    implicit val system: ActorSystem = ActorSystem("actorsystem")
-    implicit val materializer: ActorMaterializer = ActorMaterializer()
-    implicit val executionContext: ExecutionContext = system.dispatcher
-
     val route: Route =
       get {
         path(Remaining) { p =>
