@@ -1,18 +1,15 @@
 package org.lolhens.tunnel
 
 import akka.NotUsed
-import akka.actor.{ActorRef, ActorSystem, Props}
+import akka.actor.ActorSystem
 import akka.event.LoggingAdapter
 import akka.http.scaladsl.model.HttpHeader.ParsingResult
 import akka.http.scaladsl.model.HttpMethods.GET
 import akka.http.scaladsl.model.{HttpHeader, HttpRequest, _}
 import akka.http.scaladsl.settings.ClientConnectionSettings
 import akka.http.scaladsl.{ClientTransport, ConnectionContext, Http}
-import akka.stream.scaladsl.Flow.fromGraph
-import akka.stream.scaladsl.{Flow, GraphDSL, Keep, Sink, Source, Tcp}
-import akka.stream.{FlowShape, Graph, SinkShape, SourceShape}
+import akka.stream.scaladsl.{Flow, Keep, Sink, Source, Tcp}
 import akka.util.ByteString
-import org.reactivestreams.{Processor, Subscriber, Subscription}
 
 import scala.concurrent.Future
 import scala.io.StdIn
@@ -44,33 +41,18 @@ object TunnelClient extends Tunnel {
   def header(key: String, value: String): HttpHeader =
     HttpHeader.parse(key, value).asInstanceOf[ParsingResult.Ok].header
 
-
-  def fromSinkAndSource[I, O](sink: Graph[SinkShape[I], _], source: Graph[SourceShape[O], _]): Flow[I, O, NotUsed] =
-    fromSinkAndSourceMat(sink, source)(Keep.none)
-
-  /**
-    * Creates a `Flow` from a `Sink` and a `Source` where the Flow's input
-    * will be sent to the Sink and the Flow's output will come from the Source.
-    *
-    * The `combine` function is used to compose the materialized values of the `sink` and `source`
-    * into the materialized value of the resulting [[Flow]].
-    */
-  def fromSinkAndSourceMat[I, O, M1, M2, M](source1: Graph[SourceShape[I], M1], source2: Graph[SourceShape[O], M2])(combine: (M1, M2) ⇒ M): Flow[I, O, M] =
-    fromGraph(GraphDSL.create(source1, source2)(combine) { implicit b ⇒ (in, out) ⇒ FlowShape(in.out, out.out) })
-
-
   def toFlow[A, B](logic: Source[A, NotUsed] => Source[B, NotUsed]): Flow[A, B, NotUsed] = {
-    Flow.fromProcessor { () =>
-      new Processor[A, B] {
-        override def onError(t: Throwable) = ???
-        override def onComplete() = ???
-        override def onNext(t: A) = ???
-        override def onSubscribe(s: Subscription) = ???
-        override def subscribe(s: Subscriber[_ >: B]) = ???
-      }
-    }
-    Sink.asPublisher(false).mapMaterializedValue(publisher => logic(Source.fromPublisher(publisher)))
-    .
+    val (dataOutInlet, dataOutOutlet) =
+      Source.asSubscriber[A]
+        .toMat(Sink.asPublisher(false))(Keep.both)
+        .run()
+
+    val dataIn = logic(Source.fromPublisher(dataOutOutlet))
+
+    Flow.fromSinkAndSource(
+      Sink.fromSubscriber(dataOutInlet),
+      dataIn
+    )
   }
 
   def httpStreamingRequest(host: String, port: Int,
@@ -80,32 +62,32 @@ object TunnelClient extends Tunnel {
                            settings: ClientConnectionSettings = ClientConnectionSettings(system),
                            log: LoggingAdapter = system.log): Flow[ByteString, ByteString, NotUsed] = {
 
-    val (dataOutInletActor, dataOutOutletPublisher): ActorRef =
-      Source.actorPublisher[ByteString](Props[ACTOR])
+    val (dataOutInlet, dataOutOutlet) =
+      Source.asSubscriber[ByteString]
         .toMat(Sink.asPublisher(false))(Keep.both)
         .run()
 
-      val streamingRequest = request.withEntity(
-        HttpEntity.Chunked.fromData(
-          ContentTypes.`application/octet-stream`,
-          Source.actorPublisher(dataOutOutletPublisher)
+    val streamingRequest = request.withEntity(
+      HttpEntity.Chunked.fromData(
+        ContentTypes.`application/octet-stream`,
+        Source.fromPublisher(dataOutOutlet)
+      )
+    )
+
+    val dataIn = Source.single(streamingRequest)
+      .via(
+        Http().outgoingConnectionUsingTransport(
+          host, port,
+          transport = transport,
+          connectionContext = connectionContext,
+          settings = settings,
+          log = log
         )
       )
-
-      val dataIn = Source.single(streamingRequest)
-        .via(
-          Http().outgoingConnectionUsingTransport(
-            host, port,
-            transport = transport,
-            connectionContext = connectionContext,
-            settings = settings,
-            log = log
-          )
-        )
-        .flatMapConcat(_.entity.dataBytes)
+      .flatMapConcat(_.entity.dataBytes)
 
     Flow.fromSinkAndSource(
-      Sink.actorRefWithAck(dataOutInletActor, (), (), (), e => e),
+      Sink.fromSubscriber(dataOutInlet),
       dataIn
     )
   }
