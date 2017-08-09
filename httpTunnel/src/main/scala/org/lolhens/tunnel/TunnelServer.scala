@@ -14,7 +14,8 @@ object TunnelServer extends Tunnel {
 
     val requestHandler: HttpRequest => Future[HttpResponse] = {
       case HttpRequest(GET, Uri.Path(path), _, entity: HttpEntity, _) => Future {
-        parseSocketAddress(if (path.endsWith("/")) path.dropRight(1) else path).map { socketAddress =>
+        println(path)
+        parseSocketAddress((if (path.endsWith("/")) path.dropRight(1) else path).drop(1)).map { socketAddress =>
           println(socketAddress.getHostString + ":" + socketAddress.getPort)
 
           HttpResponse(entity = HttpEntity.Chunked.fromData(

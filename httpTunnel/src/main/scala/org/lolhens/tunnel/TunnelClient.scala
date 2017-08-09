@@ -20,7 +20,7 @@ object TunnelClient extends Tunnel {
     override def connectTo(host: String, port: Int, settings: ClientConnectionSettings)
                           (implicit system: ActorSystem): Flow[ByteString, ByteString, Future[Http.OutgoingConnection]] =
       Flow[ByteString]
-        .map { byteString =>
+        /*.map { byteString =>
           val lines = byteString.utf8String.split("\r\n|\n", -1).toList
           val firstLine = lines.headOption.getOrElse("")
 
@@ -32,10 +32,10 @@ object TunnelClient extends Tunnel {
             ByteString.fromString(newLines.mkString("\r\n"))
           } else
             byteString
-        }
+        }*/
         .viaMat(
-          ClientTransport.TCP.connectTo(proxyHost, proxyPort, settings)
-        )(Keep.right)
+        ClientTransport.TCP.connectTo(proxyHost, proxyPort, settings)
+      )(Keep.right)
   }
 
   def header(key: String, value: String): HttpHeader =
@@ -60,21 +60,15 @@ object TunnelClient extends Tunnel {
                            transport: ClientTransport = ClientTransport.TCP,
                            connectionContext: ConnectionContext = Http().defaultServerHttpContext,
                            settings: ClientConnectionSettings = ClientConnectionSettings(system),
-                           log: LoggingAdapter = system.log): Flow[ByteString, ByteString, NotUsed] = {
-
-    val (dataOutInlet, dataOutOutlet) =
-      Source.asSubscriber[ByteString]
-        .toMat(Sink.asPublisher(false))(Keep.both)
-        .run()
-
+                           log: LoggingAdapter = system.log): Flow[ByteString, ByteString, NotUsed] = toFlow { source =>
     val streamingRequest = request.withEntity(
       HttpEntity.Chunked.fromData(
         ContentTypes.`application/octet-stream`,
-        Source.fromPublisher(dataOutOutlet)
+        source
       )
     )
 
-    val dataIn = Source.single(streamingRequest)
+    Source.single(streamingRequest)
       .via(
         Http().outgoingConnectionUsingTransport(
           host, port,
@@ -85,11 +79,6 @@ object TunnelClient extends Tunnel {
         )
       )
       .flatMapConcat(_.entity.dataBytes)
-
-    Flow.fromSinkAndSource(
-      Sink.fromSubscriber(dataOutInlet),
-      dataIn
-    )
   }
 
   def main(args: Array[String]): Unit = {
@@ -103,7 +92,7 @@ object TunnelClient extends Tunnel {
         connection.handleWith(
           httpStreamingRequest(
             tunnelServer.getHostString, tunnelServer.getPort,
-            HttpRequest(GET, Uri./.withPath(Uri.Path(s"${socketAddress.getHostString}:${socketAddress.getPort}"))),
+            HttpRequest(GET, Uri(s"/${socketAddress.getHostString}:${socketAddress.getPort}")),
             proxyOption
               .map(proxy => proxyTransport(proxy.getHostString, proxy.getPort))
               .getOrElse(ClientTransport.TCP),
