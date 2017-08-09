@@ -21,13 +21,13 @@ object TunnelServer extends Tunnel {
           HttpResponse(entity = HttpEntity.Chunked.fromData(
             ContentTypes.`application/octet-stream`,
             entity.dataBytes
-              .prepend(Source.single(ByteString.fromString("asdfasdfasdf")))
               .map { e =>
                 //val bytes = ByteString.fromByteBuffer(Base64.getDecoder.decode(e.asByteBuffer))
                 system.log.debug("REQUEST: " + e)
                 e
               }
               .via(Tcp().outgoingConnection(socketAddress.getHostString, socketAddress.getPort))
+              //.prepend(Source.single(ByteString.fromString("asdfasdfasdf")))
               .map { e =>
                 system.log.debug("RESPONSE: " + e)
                 //val bytes = ByteString.fromByteBuffer(Base64.getEncoder.encode(e.asByteBuffer))
