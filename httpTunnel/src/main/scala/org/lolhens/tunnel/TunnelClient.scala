@@ -80,7 +80,15 @@ object TunnelClient extends Tunnel {
           log = log
         )
       )
+      .map {e =>
+        system.log.debug("INCOMING ENTITY: " + e + " " + e.entity)
+        e
+      }
       .flatMapConcat(_.entity.dataBytes)
+      .map {e =>
+        system.log.debug("INCOMING: " + e)
+        e
+      }
   }
 
   def main(args: Array[String]): Unit = {
@@ -106,8 +114,9 @@ object TunnelClient extends Tunnel {
               connectionContext = http
             ))
             .map { e =>
-              system.log.debug("RESPONSE: " + e)
-              ByteString.fromByteBuffer(Base64.getDecoder.decode(e.asByteBuffer))
+              val bytes = ByteString.fromByteBuffer(Base64.getDecoder.decode(e.asByteBuffer))
+              system.log.debug("RESPONSE: " + bytes)
+              bytes
             }
         )
       }).run()

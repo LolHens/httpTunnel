@@ -24,8 +24,9 @@ object TunnelServer extends Tunnel {
             ContentTypes.`text/plain(UTF-8)`,
             entity.dataBytes
               .map { e =>
-                system.log.debug("REQUEST: " + e)
-                ByteString.fromByteBuffer(Base64.getDecoder.decode(e.asByteBuffer))
+                val bytes = ByteString.fromByteBuffer(Base64.getDecoder.decode(e.asByteBuffer))
+                system.log.debug("REQUEST: " + bytes)
+                bytes
               }
               .via(Tcp().outgoingConnection(socketAddress.getHostString, socketAddress.getPort))
               .map { e =>
