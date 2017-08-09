@@ -37,9 +37,6 @@ class Tunnel {
   lazy val messageToByteString: Flow[Message, ByteString, NotUsed] = Flow[Message].collect {
     case binaryMessage: BinaryMessage =>
       binaryMessage.getStrictData
-    /*binaryMessage.getStreamedData.fold(ByteString.empty){ (last: ByteString, e: ByteString) =>
-    last ++ e
-  }.to(Sink.head)(Keep.left)*/
   }
 
   lazy val byteStringToMessage: Flow[ByteString, Message, NotUsed] = Flow[ByteString].collect {

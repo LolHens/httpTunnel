@@ -1,42 +1,37 @@
 package org.lolhens.tunnel
 
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.server.Directives.{get, handleWebSocketMessages, path, reject, _}
-import akka.http.scaladsl.server.Route
+import akka.http.scaladsl.model.HttpMethods.GET
+import akka.http.scaladsl.model._
 import akka.stream.scaladsl.Tcp
 
+import scala.concurrent.Future
 import scala.io.StdIn
 
 object TunnelServer extends Tunnel {
   def main(args: Array[String]): Unit = {
-    val route: Route =
-      get {
-        path(Remaining) { p =>
-          parseSocketAddress(if (p.endsWith("/")) p.dropRight(1) else p).map { socketAddress =>
-            println(socketAddress.getHostString + ":" + socketAddress.getPort)
+    val unknownResource = HttpResponse(404, entity = "Unknown resource!")
 
-            handleWebSocketMessages(
-              messageToByteString
-                .via(Tcp().outgoingConnection(socketAddress.getHostString, socketAddress.getPort).mapError {
-                  case e =>
-                    println(e)
-                    e
-                })
-                .via(byteStringToMessage)
-            )
-          }.getOrElse(reject)
-        }
+    val requestHandler: HttpRequest => Future[HttpResponse] = {
+      case HttpRequest(GET, Uri.Path(path), _, entity: HttpEntity, _) => Future {
+        parseSocketAddress(if (path.endsWith("/")) path.dropRight(1) else path).map { socketAddress =>
+          println(socketAddress.getHostString + ":" + socketAddress.getPort)
+
+          HttpResponse(entity = HttpEntity.Chunked.fromData(
+            ContentTypes.`application/octet-stream`,
+            entity.dataBytes.via(Tcp().outgoingConnection(socketAddress.getHostString, socketAddress.getPort))
+          ))
+        }.getOrElse(unknownResource)
       }
 
-    val httpsBindingFuture = Http().bindAndHandle(route, "0.0.0.0", 8443, connectionContext = https)
-    val httpBindingFuture = Http().bindAndHandle(route, "0.0.0.0", 8080, connectionContext = http)
+      case _ =>
+        Future.successful(unknownResource)
+    }
+
+    val httpBindingFuture = Http().bindAndHandleAsync(requestHandler, "0.0.0.0", 8080, connectionContext = http)
 
     println(s"Server online at http://0.0.0.0:8080/\nPress RETURN to stop...")
     StdIn.readLine()
-
-    httpsBindingFuture
-      .flatMap(_.unbind())
-      .onComplete(_ => system.terminate())
 
     httpBindingFuture
       .flatMap(_.unbind())
