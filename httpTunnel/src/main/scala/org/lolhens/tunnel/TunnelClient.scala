@@ -90,18 +90,21 @@ object TunnelClient extends Tunnel {
     } {
       val tcpServer = Tcp().bind("localhost", localPort).to(Sink.foreach { connection =>
         connection.handleWith(
-          httpStreamingRequest(
-            tunnelServer.getHostString, tunnelServer.getPort,
-            HttpRequest(GET, Uri(s"/${socketAddress.getHostString}:${socketAddress.getPort}")),
-            proxyOption
-              .map(proxy => proxyTransport(proxy.getHostString, proxy.getPort))
-              .getOrElse(ClientTransport.TCP),
-            connectionContext = http
-          )
+          Flow[ByteString]
+            .map { e => println("REQUEST: " + e); e }
+            .via(httpStreamingRequest(
+              tunnelServer.getHostString, tunnelServer.getPort,
+              HttpRequest(GET, Uri(s"/${socketAddress.getHostString}:${socketAddress.getPort}")),
+              proxyOption
+                .map(proxy => proxyTransport(proxy.getHostString, proxy.getPort))
+                .getOrElse(ClientTransport.TCP),
+              connectionContext = http
+            ))
+            .map { e => println("RESPONSE: " + e); e }
         )
       }).run()
 
-      println(s"Server online at tcp://localhost:${socketAddress.getPort}/\nPress RETURN to stop...")
+      println(s"Server online at tcp://localhost:$localPort/\nPress RETURN to stop...")
       StdIn.readLine()
 
       tcpServer

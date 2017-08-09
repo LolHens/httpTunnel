@@ -14,13 +14,15 @@ object TunnelServer extends Tunnel {
 
     val requestHandler: HttpRequest => Future[HttpResponse] = {
       case HttpRequest(GET, Uri.Path(path), _, entity: HttpEntity, _) => Future {
-        println(path)
         parseSocketAddress((if (path.endsWith("/")) path.dropRight(1) else path).drop(1)).map { socketAddress =>
           println(socketAddress.getHostString + ":" + socketAddress.getPort)
 
           HttpResponse(entity = HttpEntity.Chunked.fromData(
             ContentTypes.`application/octet-stream`,
-            entity.dataBytes.via(Tcp().outgoingConnection(socketAddress.getHostString, socketAddress.getPort))
+            entity.dataBytes
+              .map { e => println("REQUEST: " + e); e }
+              .via(Tcp().outgoingConnection(socketAddress.getHostString, socketAddress.getPort))
+              .map { e => println("RESPONSE: " + e); e }
           ))
         }.getOrElse(unknownResource)
       }
