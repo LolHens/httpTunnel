@@ -28,12 +28,17 @@ object TunnelServer extends Tunnel {
         }
       }
 
-    val bindingFuture = Http().bindAndHandle(route, "0.0.0.0", 8080)
+    val httpsBindingFuture = Http().bindAndHandle(route, "0.0.0.0", 8443, connectionContext = https)
+    val httpBindingFuture = Http().bindAndHandle(route, "0.0.0.0", 8080, connectionContext = http)
 
     println(s"Server online at http://0.0.0.0:8080/\nPress RETURN to stop...")
     StdIn.readLine()
 
-    bindingFuture
+    httpsBindingFuture
+      .flatMap(_.unbind())
+      .onComplete(_ => system.terminate())
+
+    httpBindingFuture
       .flatMap(_.unbind())
       .onComplete(_ => system.terminate())
   }
