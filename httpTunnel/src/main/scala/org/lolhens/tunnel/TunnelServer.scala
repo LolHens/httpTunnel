@@ -1,9 +1,12 @@
 package org.lolhens.tunnel
 
+import java.util.Base64
+
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.HttpMethods.GET
 import akka.http.scaladsl.model._
 import akka.stream.scaladsl.Tcp
+import akka.util.ByteString
 
 import scala.concurrent.Future
 import scala.io.StdIn
@@ -18,11 +21,17 @@ object TunnelServer extends Tunnel {
           println(socketAddress.getHostString + ":" + socketAddress.getPort)
 
           HttpResponse(entity = HttpEntity.Chunked.fromData(
-            ContentTypes.`application/octet-stream`,
+            ContentTypes.`text/plain(UTF-8)`,
             entity.dataBytes
-              .map { e => system.log.debug("REQUEST: " + e); e }
+              .map { e =>
+                system.log.debug("REQUEST: " + e)
+                ByteString.fromByteBuffer(Base64.getDecoder.decode(e.asByteBuffer))
+              }
               .via(Tcp().outgoingConnection(socketAddress.getHostString, socketAddress.getPort))
-              .map { e => system.log.debug("RESPONSE: " + e); e }
+              .map { e =>
+                system.log.debug("RESPONSE: " + e)
+                ByteString.fromByteBuffer(Base64.getEncoder.encode(e.asByteBuffer))
+              }
           ))
         }.getOrElse(unknownResource)
       }
