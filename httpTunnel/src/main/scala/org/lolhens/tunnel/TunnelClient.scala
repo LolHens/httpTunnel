@@ -1,7 +1,5 @@
 package org.lolhens.tunnel
 
-import java.util.Base64
-
 import akka.NotUsed
 import akka.actor.ActorSystem
 import akka.event.LoggingAdapter
@@ -80,12 +78,12 @@ object TunnelClient extends Tunnel {
           log = log
         )
       )
-      .map {e =>
+      .map { e =>
         system.log.debug("INCOMING ENTITY: " + e + " " + e.entity)
         e
       }
       .flatMapConcat(_.entity.dataBytes)
-      .map {e =>
+      .map { e =>
         system.log.debug("INCOMING: " + e)
         e
       }
@@ -103,7 +101,8 @@ object TunnelClient extends Tunnel {
           Flow[ByteString]
             .map { e =>
               system.log.debug("REQUEST: " + e)
-              ByteString.fromByteBuffer(Base64.getEncoder.encode(e.asByteBuffer))
+              //val bytes = ByteString.fromByteBuffer(Base64.getEncoder.encode(e.asByteBuffer))
+              e
             }
             .via(httpStreamingRequest(
               tunnelServer.getHostString, tunnelServer.getPort,
@@ -114,9 +113,9 @@ object TunnelClient extends Tunnel {
               connectionContext = http
             ))
             .map { e =>
-              val bytes = ByteString.fromByteBuffer(Base64.getDecoder.decode(e.asByteBuffer))
-              system.log.debug("RESPONSE: " + bytes)
-              bytes
+              //val bytes = ByteString.fromByteBuffer(Base64.getDecoder.decode(e.asByteBuffer))
+              system.log.debug("RESPONSE: " + e)
+              e
             }
         )
       }).run()
