@@ -29,7 +29,7 @@ object TunnelServer extends Tunnel {
 
     case object Ack
 
-    class ConnectionActor(target: Authority, id: String, onRemove: Connection => Unit) extends Actor with Stash {
+    class ConnectionActor(target: Authority, id: String, onRemove: () => Unit) extends Actor with Stash {
       val tcpStream: Flow[ByteString, ByteString, Any] =
         Tcp().outgoingConnection(target.host.address(), target.port)
 
@@ -109,10 +109,10 @@ object TunnelServer extends Tunnel {
     }
 
     object ConnectionActor {
-      def props(target: Authority, id: String, onRemove: Connection => Unit): Props =
+      def props(target: Authority, id: String, onRemove: () => Unit): Props =
         Props(new ConnectionActor(target, id, onRemove))
 
-      def actor(target: Authority, id: String, onRemove: Connection => Unit)
+      def actor(target: Authority, id: String, onRemove: () => Unit)
                (implicit actorRefFactory: ActorRefFactory): ActorRef =
         actorRefFactory.actorOf(props(target , id, onRemove))
 
@@ -130,7 +130,7 @@ object TunnelServer extends Tunnel {
     }
 
     class Connection(val target: Authority, val id: String, onRemove: Connection => Unit) {
-      val connectionActor: ActorRef = ConnectionActor.actor(target, id, onRemove)
+      val connectionActor: ActorRef = ConnectionActor.actor(target, id, () => onRemove(this))
 
       def requestData(resend: Boolean): Future[ByteString] = {
         val responsePromise = Promise[ByteString]
