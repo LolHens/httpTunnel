@@ -1,27 +1,19 @@
 package org.lolhens.tunnel
 
-import java.net.InetSocketAddress
-
-import akka.NotUsed
 import akka.actor.{Actor, ActorRef, ActorRefFactory, Props, Stash}
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.HttpMethods.GET
 import akka.http.scaladsl.model.Uri.Authority
 import akka.http.scaladsl.model._
-import akka.stream.actor.ActorPublisher
-import akka.stream.scaladsl.{Flow, Sink, Source, Tcp}
+import akka.stream.scaladsl.{Flow, Sink, Tcp}
 import akka.util.ByteString
 import monix.execution.atomic.Atomic
-import org.lolhens.tunnel.ChunkedTunnelServer.{http, parseSocketAddress, system}
-import org.lolhens.tunnel.TunnelServer.ConnectionManager.ConnectionActor.RequestData
+import org.lolhens.tunnel.Tunnel.PublisherActor
 
 import scala.concurrent.{Future, Promise}
 import scala.io.StdIn
-import scala.util.{Failure, Try}
 
 object TunnelServer extends Tunnel {
-
-
 
 
   object ConnectionManager {
@@ -31,11 +23,11 @@ object TunnelServer extends Tunnel {
 
     class ConnectionActor(target: Authority, id: String, onRemove: () => Unit) extends Actor with Stash {
       val tcpStream: Flow[ByteString, ByteString, Any] =
-        Tcp().outgoingConnection(target.host.address(), target.port)
+      Flow[ByteString].map{e => println("REQ: " + e); e}.via(Tcp().outgoingConnection(target.host.address(), target.port)).map{e => println("RES: " + e); e}
 
       val (tcpInInlet, tcpInOutlet) = actorSource[ByteString]
 
-      tcpInOutlet.via(tcpStream).to(Sink.actorRef(self, ConnectionActor.TcpComplete))
+      tcpInOutlet.via(tcpStream).to(Sink.actorRef(self, ConnectionActor.TcpComplete)).run()
 
       //val connector: MutableConnector[ByteString, Ack.type] = MutableConnector[ByteString, Ack.type]()
 
@@ -67,7 +59,6 @@ object TunnelServer extends Tunnel {
       var requestPromise: Option[Promise[ByteString]] = None
       var donePromise: Option[Promise[Unit]] = None
 
-      // TODO: onRemove
       override def receive: Receive = {
         case ConnectionActor.RequestData(resend, dataPromise) =>
           if (!resend) {
@@ -79,7 +70,6 @@ object TunnelServer extends Tunnel {
             dataPromise.success(lastBuffer)
           else
             requestPromise = Some(dataPromise)
-        // Send last buffer or buffer or wait for buffer
         case ConnectionActor.PutData(data, promise) =>
           tcpInInlet ! data
           donePromise = Some(promise)
@@ -99,12 +89,14 @@ object TunnelServer extends Tunnel {
           requestPromise match {
             case Some(promise) =>
               promise.success(data)
+              requestPromise = None
 
             case None =>
               buffer = buffer ++ data
           }
 
       }
+
       override def postStop(): Unit = onRemove()
     }
 
@@ -114,7 +106,7 @@ object TunnelServer extends Tunnel {
 
       def actor(target: Authority, id: String, onRemove: () => Unit)
                (implicit actorRefFactory: ActorRefFactory): ActorRef =
-        actorRefFactory.actorOf(props(target , id, onRemove))
+        actorRefFactory.actorOf(props(target, id, onRemove))
 
       case class RequestData(resend: Boolean, data: Promise[ByteString])
 
@@ -145,45 +137,46 @@ object TunnelServer extends Tunnel {
       }
 
       def resetTimeout(): Unit = connectionActor ! ConnectionActor.ResetTimeout
-  }
+    }
 
-    def get(target: Authority,id: String): Connection = connections.transformAndExtract { connectionMap =>
-      val connection: Connection = connectionMap.getOrElse((target, id), new Connection(target,id, {c =>
+    def get(target: Authority, id: String): Connection = connections.transformAndExtract { connectionMap =>
+      val connection: Connection = connectionMap.getOrElse((target, id), new Connection(target, id, { c =>
         connections.transform(connections => connections - ((c.target, c.id)))
       }))
       connection.resetTimeout()
-      (connection, connectionMap)
+      (connection, connectionMap + ((target, id) -> connection))
     }
   }
 
   def main(args: Array[String]): Unit = {
     val requestHandler: HttpRequest => Future[HttpResponse] = {
-      case HttpRequest(GET, Uri.Path(path), _, HttpEntity.Strict(ContentTypes.`application/octet-stream`, data), _) =>
+      case HttpRequest(GET, Uri.Path(path), _, HttpEntity.Strict(_, data), _) =>
         val pathParts = path.drop(1).split("/", -1).toList
 
+        println(pathParts)
         (for {
           target <- parseAuthority(pathParts.head)
-                                    direction <- pathParts.lift(1)
-                                    id <- pathParts.lift(2)
+          direction <- pathParts.lift(1)
+          id <- pathParts.lift(2)
           connection = ConnectionManager.get(target, id)
         } yield {
           direction match {
             case "recv" =>
               val AckBytes = ByteString.fromString("ACK")
               val ack: Boolean = data match {
-                 case AckBytes => true
-                 case _ => false
-               }
+                case AckBytes => true
+                case _ => false
+              }
 
               connection.requestData(!ack).map(data =>
-              HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, data))
+                HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, data))
               )
             case "send" =>
               connection.putData(data).map(_ => HttpResponse())
           }
         }).getOrElse(Future.successful(unknownResource))
 
-      case _ =>
+      case e =>
         Future.successful(unknownResource)
     }
 

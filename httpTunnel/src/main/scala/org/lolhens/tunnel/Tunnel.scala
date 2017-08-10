@@ -17,6 +17,7 @@ import akka.stream.actor.{ActorPublisher, ActorPublisherMessage}
 import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.util.ByteString
 import com.typesafe.sslconfig.akka.AkkaSSLConfig
+import org.lolhens.tunnel.Tunnel.PublisherActor
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
@@ -252,7 +253,17 @@ class Tunnel {
       .toMat(Sink.head)(Keep.right)
       .run()
 
+  def actorSource[T]: (ActorRef, Source[T, NotUsed]) = {
+    val (actorRef, publisher) =
+      Source.actorPublisher[T](PublisherActor.props[T])
+        .toMat(Sink.asPublisher(false))(Keep.both)
+        .run()
 
+    (actorRef, Source.fromPublisher(publisher))
+  }
+}
+
+object Tunnel {
   class PublisherActor[T] extends ActorPublisher[T] {
     var buffer: Option[(T, ActorRef)] = None
 
@@ -295,14 +306,5 @@ class Tunnel {
 
     case class Failure(throwable: Throwable) extends Command
 
-  }
-
-  def actorSource[T]: (ActorRef, Source[T, NotUsed]) = {
-    val (actorRef, publisher) =
-      Source.actorPublisher[T](PublisherActor.props[T])
-        .toMat(Sink.asPublisher(false))(Keep.both)
-        .run()
-
-    (actorRef, Source.fromPublisher(publisher))
   }
 }
