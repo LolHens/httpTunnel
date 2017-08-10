@@ -32,6 +32,8 @@ class Tunnel {
 
   val unknownResource = HttpResponse(404, entity = "Unknown resource!")
 
+  def time: String = ((System.currentTimeMillis() - Tunnel.firstTime).toDouble / 1000).toString
+
   def parseAuthority(string: String): Option[Authority] = {
     val hostString :: portString :: _ = string.split(":", -1).toList ++ List("")
     val hostOption = Some(hostString.trim).filter(_ != "")
@@ -264,6 +266,8 @@ class Tunnel {
 }
 
 object Tunnel {
+  lazy val firstTime = System.currentTimeMillis()
+
   class PublisherActor[T] extends ActorPublisher[T] {
     var buffer: Option[(T, ActorRef)] = None
 

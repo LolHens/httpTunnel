@@ -23,7 +23,7 @@ object TunnelServer extends Tunnel {
 
     class ConnectionActor(target: Authority, id: String, onRemove: () => Unit) extends Actor with Stash {
       val tcpStream: Flow[ByteString, ByteString, Any] =
-        Flow[ByteString].map { e => println("REQ: " + e); e }.via(Tcp().outgoingConnection(target.host.address(), target.port)).map { e => println("RES: " + e); e }
+        Flow[ByteString].map { e => println("REQ: " + time + " " + e); e }.via(Tcp().outgoingConnection(target.host.address(), target.port)).map { e => println("RES: " + time + " " + e); e }
 
       val (tcpInInlet, tcpInOutlet) = actorSource[ByteString]
 
@@ -143,7 +143,7 @@ object TunnelServer extends Tunnel {
               connection.requestData(!ack).map(data =>
                 HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, data))
               )
-            case "send" =>
+            case "send" => println("send")
               connection.putData(data).map(_ => HttpResponse())
           }
         }).getOrElse(Future.successful(unknownResource))
