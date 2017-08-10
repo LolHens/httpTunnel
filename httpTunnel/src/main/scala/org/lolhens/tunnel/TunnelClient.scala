@@ -32,7 +32,7 @@ object TunnelClient extends Tunnel {
 
           val inbox: Source[ByteString, NotUsed] = {
             val (inlet, outlet) = coupling[Boolean]
-            Source.single(false)
+            Source.single(true)
               .concat(outlet)
               .map { ack =>
                 Http().singleRequest(HttpRequest(
@@ -58,9 +58,11 @@ object TunnelClient extends Tunnel {
           val outbox: Sink[ByteString, NotUsed] =
             Flow[ByteString]
               .map { bytes =>
+                println("REQ out: " + bytes)
                 Http().singleRequest(HttpRequest(
                   uri = Uri(s"http://${server.getHostString}:${server.getPort}/${targetSocket.getHostString}:${targetSocket.getPort}/send/$uuid"),
-                  headers = List(headers.Host(tunnelServer.getHostString, tunnelServer.getPort))
+                  headers = List(headers.Host(tunnelServer.getHostString, tunnelServer.getPort)),
+                  entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, bytes)
                 ))
               }
               .flatMapConcat(f => Source.fromFuture(f))
@@ -68,7 +70,7 @@ object TunnelClient extends Tunnel {
 
           val tunnel: Flow[ByteString, ByteString, NotUsed] = Flow.fromSinkAndSource(outbox, inbox)
 
-          connection.handleWith(tunnel)
+          connection.handleWith(Flow[ByteString].map{e => println("REQ: " + e); e}.via(tunnel).map{e => println("RES: " + e); e})
         }).run()
           /*val signals = Source.tick(0.millis, 200.millis, ())
           signals.map{_ =>
