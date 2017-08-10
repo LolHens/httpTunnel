@@ -105,7 +105,7 @@ object TunnelServer extends Tunnel {
           }
 
       }
-      override def postStop(): Unit = onRemove
+      override def postStop(): Unit = onRemove()
     }
 
     object ConnectionActor {
