@@ -12,7 +12,7 @@ object WebsocketTunnelServer extends Tunnel {
     val route: Route =
       get {
         path(Remaining) { p =>
-          parseSocketAddress(if (p.endsWith("/")) p.dropRight(1) else p).map { socketAddress =>
+          parseSocketAddress(p.split("/", -1)(0)).map { socketAddress =>
             println(socketAddress.getHostString + ":" + socketAddress.getPort)
 
             handleWebSocketMessages(
