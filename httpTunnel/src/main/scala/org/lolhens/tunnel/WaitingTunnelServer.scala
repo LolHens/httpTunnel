@@ -13,7 +13,7 @@ import org.lolhens.tunnel.Tunnel.PublisherActor
 import scala.concurrent.{Future, Promise}
 import scala.io.StdIn
 
-object TunnelServer extends Tunnel {
+object WaitingTunnelServer extends Tunnel {
 
 
   object ConnectionManager {
@@ -45,6 +45,7 @@ object TunnelServer extends Tunnel {
             dataPromise.success(lastBuffer)
           else
             requestPromise = Some(dataPromise)
+          println(id + " " + requestPromise)
         case ConnectionActor.PutData(data, promise) =>
           tcpInInlet ! data
           donePromise = Some(promise)
@@ -61,6 +62,7 @@ object TunnelServer extends Tunnel {
         case ConnectionActor.TcpComplete =>
 
         case data: ByteString =>
+          println("RES akka " + time + " " + data + " " + id + " " + requestPromise)
           requestPromise match {
             case Some(promise) =>
               promise.success(data)
@@ -140,9 +142,10 @@ object TunnelServer extends Tunnel {
                 case _ => false
               }
 
-              connection.requestData(!ack).map(data =>
+              connection.requestData(!ack).map{data =>
+                println("RES send " + time + " " + data)
                 HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, data))
-              )
+              }
             case "send" => println("send")
               connection.putData(data).map(_ => HttpResponse())
           }
