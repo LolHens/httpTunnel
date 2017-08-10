@@ -23,36 +23,11 @@ object TunnelServer extends Tunnel {
 
     class ConnectionActor(target: Authority, id: String, onRemove: () => Unit) extends Actor with Stash {
       val tcpStream: Flow[ByteString, ByteString, Any] =
-      Flow[ByteString].map{e => println("REQ: " + e); e}.via(Tcp().outgoingConnection(target.host.address(), target.port)).map{e => println("RES: " + e); e}
+        Flow[ByteString].map { e => println("REQ: " + e); e }.via(Tcp().outgoingConnection(target.host.address(), target.port)).map { e => println("RES: " + e); e }
 
       val (tcpInInlet, tcpInOutlet) = actorSource[ByteString]
 
       tcpInOutlet.via(tcpStream).to(Sink.actorRef(self, ConnectionActor.TcpComplete)).run()
-
-      //val connector: MutableConnector[ByteString, Ack.type] = MutableConnector[ByteString, Ack.type]()
-
-      //val sink: Sink[ByteString, NotUsed] = Sink.actorRefWithAck(self, TcpInit, Ack, TcpEnd(None), e => TcpEnd(Some(e)))
-
-      //sourceOutlet.via(tcpStream).to(sink)
-
-
-      /*override def receive: Receive = {
-        case TcpInit => sender() ! Ack
-
-        case bytes: ByteString =>
-          buffer = Some(bytes)
-
-        case TcpEnd(_) =>
-          context.stop(self)
-
-
-
-        case SetHttpSender(ref) =>
-          httpSender = Some(ref)
-
-        case Receive =>
-
-      }*/
 
       var lastBuffer: ByteString = ByteString.empty
       var buffer: ByteString = ByteString.empty
@@ -116,9 +91,6 @@ object TunnelServer extends Tunnel {
 
       case object TcpComplete
 
-      //case class SetSource(source: Source[ByteString, NotUsed])
-
-      //case class SetSink(flow: Flow[ByteString, ByteString, NotUsed])
     }
 
     class Connection(val target: Authority, val id: String, onRemove: Connection => Unit) {
