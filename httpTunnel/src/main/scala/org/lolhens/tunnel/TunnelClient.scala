@@ -30,6 +30,8 @@ object TunnelClient extends Tunnel {
         .to(Sink.foreach { tcpConnection =>
           val id = UUID.randomUUID().toString
 
+          val lastReq = Atomic(None: Option[HttpRequest])
+
           val httpConnection = Flow[ByteString]
             .map(data => HttpRequest(
               method = HttpMethods.POST,
@@ -37,10 +39,12 @@ object TunnelClient extends Tunnel {
               headers = List(headers.Host(tunnelServer)),
               entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, data)
             ))
+              .map{e => lastReq.set(Some(e)); e}
             .via(Http().outgoingConnection(server.host.toString(), server.port))
             .map {
               case HttpResponse(StatusCodes.OK, _, HttpEntity.Strict(_, data), _) => data
-              case _ => ByteString.empty
+              case r => println("INVALID RESPONSE " + time + " " + id + " " + r + " " + lastReq.get)
+                ByteString.empty
             }
 
           val httpOutBuffer = Atomic(ByteString.empty)

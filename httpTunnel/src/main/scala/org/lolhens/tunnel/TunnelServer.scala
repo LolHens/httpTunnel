@@ -55,7 +55,7 @@ object TunnelServer extends Tunnel {
 
   def main(args: Array[String]): Unit = {
     val requestHandler: HttpRequest => Future[HttpResponse] = {
-      case HttpRequest(HttpMethods.POST, Uri.Path(path), _, HttpEntity.Strict(_, data), _) => Future {
+      case req@HttpRequest(HttpMethods.POST, Uri.Path(path), _, HttpEntity.Strict(_, data), _) => Future {
         val pathParts = path.drop(1).split("/", -1).toList
         (for {
           id <- pathParts.headOption
@@ -65,10 +65,14 @@ object TunnelServer extends Tunnel {
           connection.push(data)
           val out = connection.pull()
           HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
-        }).getOrElse(unknownResource)
+        }).getOrElse{
+          println("WRONG PARTS? " + time + " " + req)
+          unknownResource
+        }
       }
 
       case e =>
+        println("UNKNOWN? " + time + " " + e)
         Future.successful(unknownResource)
     }
 
