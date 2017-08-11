@@ -81,15 +81,14 @@ object TunnelClient extends Tunnel {
                 .merge(Source.tick(0.millis, 200.millis, ()) /*.map(_ => println("sig3"))*/)
                 .map(_ => httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize))))
                 .via(httpConnection)
-                .alsoTo(
+                .map{data => httpInBuffer.transform(_ ++ data); data}
+                .to(
                   Flow[ByteString]
                     .filter(_.nonEmpty)
                       .map{e => println("received length: " + e.size)}
                     .map(_ => ())
                     .to(httpResponseSignalInlet)
                 )
-                .map(data => httpInBuffer.transform(_ ++ data))
-                .to(Sink.ignore)
             }
             .run()
 
