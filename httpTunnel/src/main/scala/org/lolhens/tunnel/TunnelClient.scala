@@ -39,12 +39,11 @@ object TunnelClient extends Tunnel {
               headers = List(headers.Host(tunnelServer)),
               entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, data)
             ))
-              .map{e => lastReq.set(Some(e)); e}
+            .map { e => lastReq.set(Some(e)); e }
             .via(Http().outgoingConnection(server.host.toString(), server.port))
-            .map {
-              case HttpResponse(StatusCodes.OK, _, HttpEntity.Strict(_, data), _) => data
-              case r => println("INVALID RESPONSE " + time + " " + id + " " + r + " " + lastReq.get)
-                ByteString.empty
+            .flatMapConcat {
+              case HttpResponse(StatusCodes.OK, _, entity: ResponseEntity, _) => entity.dataBytes
+              case r => Source.empty[ByteString]
             }
 
           val httpOutBuffer = Atomic(ByteString.empty)
@@ -73,11 +72,11 @@ object TunnelClient extends Tunnel {
               Flow[Unit]
                 //.map(_ => println("sig1"))
                 .flatMapMerge(2, _ =>
-                  Source.tick(250.millis, 50.millis, ()).take(50)
-                    .merge(Source.tick(10.millis, 5.millis, ()).take(50))
-                )
-                .merge(tcpResponseSignalOutlet/*.map(_ => println("sig2"))*/)
-                .merge(Source.tick(0.millis, 1000.millis, ())/*.map(_ => println("sig3"))*/)
+                Source.tick(250.millis, 50.millis, ()).take(50)
+                  .merge(Source.tick(10.millis, 5.millis, ()).take(50))
+              )
+                .merge(tcpResponseSignalOutlet /*.map(_ => println("sig2"))*/)
+                .merge(Source.tick(0.millis, 1000.millis, ()) /*.map(_ => println("sig3"))*/)
                 .map(_ => httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize))))
                 .via(httpConnection)
                 .alsoTo(
@@ -91,7 +90,7 @@ object TunnelClient extends Tunnel {
             }
             .run()
 
-        }).run().map{e => println(e); e}
+        }).run().map { e => println(e); e }
 
       println(s"Server online at tcp://localhost:$localPort/\nPress RETURN to stop...")
       StdIn.readLine()

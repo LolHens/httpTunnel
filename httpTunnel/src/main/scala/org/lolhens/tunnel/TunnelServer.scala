@@ -1,9 +1,10 @@
 package org.lolhens.tunnel
 
+import akka.http.javadsl.model.RequestEntity
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.Uri.Authority
 import akka.http.scaladsl.model._
-import akka.stream.scaladsl.{Sink, Tcp}
+import akka.stream.scaladsl.{Keep, Sink, Tcp}
 import akka.util.ByteString
 import monix.execution.atomic.Atomic
 
@@ -55,24 +56,27 @@ object TunnelServer extends Tunnel {
 
   def main(args: Array[String]): Unit = {
     val requestHandler: HttpRequest => Future[HttpResponse] = {
-      case req@HttpRequest(HttpMethods.POST, Uri.Path(path), _, HttpEntity.Strict(_, data), _) => Future {
+      case req@HttpRequest(HttpMethods.POST, Uri.Path(path), _, entity: RequestEntity, _) =>
         val pathParts = path.drop(1).split("/", -1).toList
         (for {
           id <- pathParts.headOption
           target <- pathParts.lift(1).flatMap(parseAuthority)
           connection = ConnectionManager.get(id, target)
-        } yield {
-          connection.push(data)
-          val out = connection.pull()
-          HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
-        }).getOrElse{
-          println("WRONG PARTS? " + time + " " + req)
-          unknownResource
+        } yield
+          entity.dataBytes
+            .limit(maxHttpPacketSize)
+            .toMat(Sink.seq)(Keep.right)
+            .run()
+            .map(ByteString(_)).map { data =>
+            connection.push(data)
+            val out = connection.pull()
+            HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
+          }
+          ).getOrElse {
+          Future.successful(unknownResource)
         }
-      }
 
       case e =>
-        println("UNKNOWN? " + time + " " + e)
         Future.successful(unknownResource)
     }
 
