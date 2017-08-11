@@ -1,5 +1,7 @@
 package org.lolhens.tunnel
 
+import java.util.Base64
+
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.HttpMethods.GET
 import akka.http.scaladsl.model.Uri.Authority
@@ -63,8 +65,9 @@ object TunnelServer extends Tunnel {
           target <- pathParts.lift(1).flatMap(parseAuthority)
           connection = ConnectionManager.get(id, target)
         } yield {
-          connection.push(data)
-          HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, connection.pull()))
+          connection.push(ByteString(Base64.getDecoder.decode(data.asByteBuffer)))
+          val out = ByteString(Base64.getEncoder.encode(connection.pull().asByteBuffer))
+          HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
         }).getOrElse(unknownResource)
       }
 

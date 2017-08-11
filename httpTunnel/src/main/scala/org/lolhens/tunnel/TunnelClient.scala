@@ -1,6 +1,6 @@
 package org.lolhens.tunnel
 
-import java.util.UUID
+import java.util.{Base64, UUID}
 
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
@@ -32,13 +32,13 @@ object TunnelClient extends Tunnel {
 
           val httpConnection = Flow[ByteString]
             .map(data => HttpRequest(
-              uri = Uri(s"http://${server.host}:${server.port}/$id/${targetSocket.host}:${targetSocket.port}"),
+              uri = Uri(s"http://${tunnelServer.host}:${tunnelServer.port}/$id/${targetSocket.host}:${targetSocket.port}"),
               headers = List(headers.Host(tunnelServer)),
-              entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, data)
+              entity = HttpEntity.Strict(ContentTypes.`text/plain(UTF-8)`, ByteString(Base64.getEncoder.encode(data.asByteBuffer)))
             ))
             .via(Http().outgoingConnection(server.host.toString(), server.port))
             .map {
-              case HttpResponse(StatusCodes.OK, _, HttpEntity.Strict(_, data), _) => data
+              case HttpResponse(StatusCodes.OK, _, HttpEntity.Strict(_, data), _) => ByteString(Base64.getDecoder.decode(data.asByteBuffer))
               case _ => ByteString.empty
             }
 
