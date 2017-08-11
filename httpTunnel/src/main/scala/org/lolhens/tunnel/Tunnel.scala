@@ -38,7 +38,7 @@ class Tunnel {
   def toBase64(data: ByteString): ByteString = ByteString(Base64.getEncoder.encode(data.asByteBuffer))
   def fromBase64(data: ByteString): ByteString = ByteString(Base64.getDecoder.decode(data.asByteBuffer))
 
-  def time: String = ((System.currentTimeMillis() - Tunnel.firstTime).toDouble / 1000).toString
+  def time: String = (((System.currentTimeMillis() - Tunnel.firstTime) / 10L).toDouble / 100D).toString
 
   def parseAuthority(string: String): Option[Authority] = {
     val hostString :: portString :: _ = string.split(":", -1).toList ++ List("")

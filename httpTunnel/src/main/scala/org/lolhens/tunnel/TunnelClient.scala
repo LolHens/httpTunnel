@@ -53,9 +53,9 @@ object TunnelClient extends Tunnel {
             .alsoTo {
               Flow[Unit]
                 .map(_ => httpInBuffer.getAndSet(ByteString.empty))
-                .map { e => println("RES " + time + " " + e.size + ":" + toBase64(e).utf8String); e }
+                .map { e => println("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
                 .via(tcpConnection.flow)
-                .map { e => println("REQ " + time + " " + e.size + ":" + toBase64(e).utf8String); e }
+                .map { e => println("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
                 .alsoTo(
                   Flow[ByteString]
                     .filter(_.nonEmpty)
@@ -87,7 +87,7 @@ object TunnelClient extends Tunnel {
             }
             .run()
 
-        }).run()
+        }).run().map{e => println(e); e}
 
       println(s"Server online at tcp://localhost:$localPort/\nPress RETURN to stop...")
       StdIn.readLine()

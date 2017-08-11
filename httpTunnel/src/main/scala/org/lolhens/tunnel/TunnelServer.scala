@@ -45,9 +45,9 @@ object TunnelServer extends Tunnel {
     tcpOutSignalOutlet
       .map(_ => httpInBuffer.getAndSet(ByteString.empty))
       .filter(_.nonEmpty)
-      .map { e => println("REQ " + time + " " + e.size + ":" + toBase64(e).utf8String); e }
+      .map { e => println("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
       .via(tcpStream)
-      .map { e => println("RES " + time + " " + e.size + ":" + toBase64(e).utf8String); e }
+      .map { e => println("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
       .map(data => httpOutBuffer.transform(_ ++ data))
       .to(Sink.ignore)
       .run()
