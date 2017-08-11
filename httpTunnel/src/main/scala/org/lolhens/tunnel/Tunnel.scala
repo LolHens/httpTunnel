@@ -4,7 +4,7 @@ import java.net.InetSocketAddress
 import javax.net.ssl.SSLContext
 
 import akka.NotUsed
-import akka.actor.{Actor, ActorRef, ActorRefFactory, ActorSystem, Props, Stash}
+import akka.actor.{ActorRef, ActorSystem, Props}
 import akka.event.LoggingAdapter
 import akka.http.scaladsl._
 import akka.http.scaladsl.model.HttpHeader.ParsingResult
@@ -31,6 +31,8 @@ class Tunnel {
   lazy val https: HttpsConnectionContext = ConnectionContext.https(SSLContext.getDefault, Some(AkkaSSLConfig()))
 
   val unknownResource = HttpResponse(404, entity = "Unknown resource!")
+
+  val maxHttpPacketSize = 10000
 
   def time: String = ((System.currentTimeMillis() - Tunnel.firstTime).toDouble / 1000).toString
 
@@ -311,4 +313,5 @@ object Tunnel {
     case class Failure(throwable: Throwable) extends Command
 
   }
+
 }

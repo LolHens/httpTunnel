@@ -15,7 +15,6 @@ import scala.io.StdIn
 
 object WaitingTunnelServer extends Tunnel {
 
-
   object ConnectionManager {
     val connections = Atomic(Map.empty[(Authority, String), Connection])
 
@@ -142,7 +141,7 @@ object WaitingTunnelServer extends Tunnel {
                 case _ => false
               }
 
-              connection.requestData(!ack).map{data =>
+              connection.requestData(!ack).map { data =>
                 println("RES send " + time + " " + data)
                 HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, data))
               }
@@ -155,7 +154,11 @@ object WaitingTunnelServer extends Tunnel {
         Future.successful(unknownResource)
     }
 
-    val httpBindingFuture = Http().bindAndHandleAsync(requestHandler, "0.0.0.0", 8080, connectionContext = http)
+    val httpBindingFuture =
+    //Http().bindAndHandle(
+    //Flow[HttpRequest].flatMapMerge(6, e => Source.fromFuture(requestHandler(e))),
+    //"0.0.0.0", 8080, connectionContext = http) Has to be the right order!
+      Http().bindAndHandleAsync(requestHandler, "0.0.0.0", 8080, connectionContext = http, parallelism = 4)
 
     println(s"Server online at http://0.0.0.0:8080/\nPress RETURN to stop...")
     StdIn.readLine()

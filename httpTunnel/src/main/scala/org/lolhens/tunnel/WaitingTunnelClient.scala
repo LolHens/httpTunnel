@@ -5,15 +5,13 @@ import java.util.UUID
 import akka.NotUsed
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
-import akka.stream.ThrottleMode
 import akka.stream.scaladsl.{Flow, Sink, Source, Tcp}
 import akka.util.ByteString
 import monix.execution.FutureUtils.extensions._
+import monix.execution.Scheduler.Implicits.global
 
-import scala.concurrent.duration._
 import scala.io.StdIn
 import scala.util.{Failure, Success, Try}
-import monix.execution.Scheduler.Implicits.global
 
 object WaitingTunnelClient extends Tunnel {
   def main(args: Array[String]): Unit = {
@@ -24,8 +22,11 @@ object WaitingTunnelClient extends Tunnel {
       proxyOption = args.lift(3).flatMap(parseSocketAddress)
     } {
       val server = proxyOption.getOrElse(tunnelServer)
+      println(server)
 
-      val tcpServer = Tcp().bind("localhost", localPort).throttle(1, 1.seconds, 1, ThrottleMode.Shaping).to(Sink.foreach { connection =>
+      val tcpServer = Tcp().bind("localhost", localPort)
+        //.throttle(1, 1.seconds, 1, ThrottleMode.Shaping)
+        .to(Sink.foreach { connection =>
         val uuid = UUID.randomUUID().toString
         println("new connection: " + uuid)
 
@@ -39,7 +40,7 @@ object WaitingTunnelClient extends Tunnel {
                 uri = Uri(s"http://${server.getHostString}:${server.getPort}/${targetSocket.getHostString}:${targetSocket.getPort}/recv/$uuid"),
                 headers = List(headers.Host(tunnelServer.getHostString, tunnelServer.getPort)),
                 entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, ByteString.fromString(if (ack) "ACK" else ""))
-              )).timeout(10.second)
+              )) //.timeout(10.second)
             }
             .flatMapConcat(f => Source.fromFuture(f.materialize))
             .map { e => println(e); e }
