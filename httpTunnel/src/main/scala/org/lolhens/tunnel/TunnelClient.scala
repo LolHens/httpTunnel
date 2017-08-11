@@ -53,9 +53,9 @@ object TunnelClient extends Tunnel {
             .alsoTo {
               Flow[Unit]
                 .map(_ => httpInBuffer.getAndSet(ByteString.empty))
-                .map { e => println("RES " + e); e }
+                .map { e => println("RES " + time + " " + e.size + ":" + toBase64(e).utf8String); e }
                 .via(tcpConnection.flow)
-                .map { e => println("REQ " + e); e }
+                .map { e => println("REQ " + time + " " + e.size + ":" + toBase64(e).utf8String); e }
                 .alsoTo(
                   Flow[ByteString]
                     .filter(_.nonEmpty)
@@ -67,12 +67,13 @@ object TunnelClient extends Tunnel {
             }
             .to {
               Flow[Unit]
+                //.map(_ => println("sig1"))
                 .flatMapMerge(2, _ =>
-                  Source.tick(100.millis, 100.millis, ()).take(40)
-                    .merge(Source.tick(10.millis, 5.millis, ()).take(100))
+                  Source.tick(250.millis, 50.millis, ()).take(50)
+                    .merge(Source.tick(10.millis, 5.millis, ()).take(50))
                 )
-                .merge(tcpResponseSignalOutlet)
-                .merge(Source.tick(0.millis, 1000.millis, ()))
+                .merge(tcpResponseSignalOutlet/*.map(_ => println("sig2"))*/)
+                .merge(Source.tick(0.millis, 1000.millis, ())/*.map(_ => println("sig3"))*/)
                 .map(_ => httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize))))
                 .via(httpConnection)
                 .alsoTo(
