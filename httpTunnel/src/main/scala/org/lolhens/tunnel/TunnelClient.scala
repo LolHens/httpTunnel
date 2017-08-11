@@ -32,6 +32,7 @@ object TunnelClient extends Tunnel {
 
           val httpConnection = Flow[ByteString]
             .map(data => HttpRequest(
+              method = HttpMethods.POST,
               uri = Uri(s"http://${tunnelServer.host}:${tunnelServer.port}/$id/${targetSocket.host}:${targetSocket.port}"),
               headers = List(headers.Host(tunnelServer)),
               entity = HttpEntity.Strict(ContentTypes.`text/plain(UTF-8)`, ByteString(Base64.getEncoder.encode(data.asByteBuffer)))
@@ -45,39 +46,46 @@ object TunnelClient extends Tunnel {
           val httpOutBuffer = Atomic(ByteString.empty)
           val httpInBuffer = Atomic(ByteString.empty)
 
-          val (tcpOutSignalInlet, tcpOutSignalOutlet) = coupling[Unit]
-          val (httpOutSignalInlet, httpOutSignalOutlet) = coupling[Unit]
+          val (httpResponseSignalInlet, httpResponseSignalOutlet) = coupling[Unit]
+          val (tcpResponseSignalInlet, tcpResponseSignalOutlet) = coupling[Unit]
 
-          tcpOutSignalOutlet
-            .map(_ => httpInBuffer.getAndSet(ByteString.empty))
-            .map { e => println("RES " + e); e }
-            .via(tcpConnection.flow)
-            .map { e => println("REQ " + e); e }
-            .alsoTo(
-              Flow[ByteString]
-                .filter(_.nonEmpty)
-                .map(_ => ())
-                .to(httpOutSignalInlet)
-            )
-            .map(data => httpOutBuffer.transform(_ ++ data))
-            .to(Sink.ignore)
+          httpResponseSignalOutlet
+            .alsoTo {
+              Flow[Unit]
+                .map(_ => httpInBuffer.getAndSet(ByteString.empty))
+                .map { e => println("RES " + e); e }
+                .via(tcpConnection.flow)
+                .map { e => println("REQ " + e); e }
+                .alsoTo(
+                  Flow[ByteString]
+                    .filter(_.nonEmpty)
+                    .map(_ => ())
+                    .to(tcpResponseSignalInlet)
+                )
+                .map(data => httpOutBuffer.transform(_ ++ data))
+                .to(Sink.ignore)
+            }
+            .to {
+              Flow[Unit]
+                .flatMapMerge(2, _ =>
+                  Source.tick(100.millis, 100.millis, ()).take(40)
+                    .merge(Source.tick(10.millis, 5.millis, ()).take(100))
+                )
+                .merge(tcpResponseSignalOutlet)
+                .merge(Source.tick(0.millis, 1000.millis, ()))
+                .map(_ => httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize))))
+                .via(httpConnection)
+                .alsoTo(
+                  Flow[ByteString]
+                    .filter(_.nonEmpty)
+                    .map(_ => ())
+                    .to(httpResponseSignalInlet)
+                )
+                .map(data => httpInBuffer.transform(_ ++ data))
+                .to(Sink.ignore)
+            }
             .run()
 
-          httpOutSignalOutlet
-            .flatMapConcat(_ => Source.tick(10.millis, 5.millis, ()).take(100))
-            .merge(Source.tick(0.millis, 200.millis, ()))
-            .map(_ => httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize))))
-            .via(httpConnection)
-            .alsoTo(
-              Flow[ByteString]
-                .filter(_.nonEmpty)
-                .map(_ => ())
-                .alsoTo(tcpOutSignalInlet)
-                .to(httpOutSignalInlet)
-            )
-            .map(data => httpInBuffer.transform(_ ++ data))
-            .to(Sink.ignore)
-            .run()
         }).run()
 
       println(s"Server online at tcp://localhost:$localPort/\nPress RETURN to stop...")

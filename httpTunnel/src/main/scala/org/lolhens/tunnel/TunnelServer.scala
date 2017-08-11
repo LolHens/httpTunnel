@@ -58,7 +58,7 @@ object TunnelServer extends Tunnel {
 
   def main(args: Array[String]): Unit = {
     val requestHandler: HttpRequest => Future[HttpResponse] = {
-      case HttpRequest(GET, Uri.Path(path), _, HttpEntity.Strict(_, data), _) => Future {
+      case HttpRequest(HttpMethods.POST, Uri.Path(path), _, HttpEntity.Strict(_, data), _) => Future {
         val pathParts = path.drop(1).split("/", -1).toList
         (for {
           id <- pathParts.headOption
@@ -67,7 +67,7 @@ object TunnelServer extends Tunnel {
         } yield {
           connection.push(ByteString(Base64.getDecoder.decode(data.asByteBuffer)))
           val out = ByteString(Base64.getEncoder.encode(connection.pull().asByteBuffer))
-          HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
+          HttpResponse(entity = HttpEntity.Strict(ContentTypes.`text/plain(UTF-8)`, out))
         }).getOrElse(unknownResource)
       }
 
