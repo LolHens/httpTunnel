@@ -63,7 +63,7 @@ object TunnelServer extends Tunnel {
           target <- pathParts.lift(1).flatMap(parseAuthority)
           connection = ConnectionManager.get(id, target)
         } yield {
-          println("req")
+          //println("req")
           entity.dataBytes
             .limit(maxHttpPacketSize)
             .toMat(Sink.fold(ByteString.empty)(_ ++ _))(Keep.right)
@@ -71,7 +71,7 @@ object TunnelServer extends Tunnel {
             .map { data =>
               connection.push(data)
               val out = connection.pull()
-              println("received " + data.size + " pushing " + out.size)
+              //println("received " + data.size + " pushing " + out.size)
               HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
             }
         }).getOrElse {

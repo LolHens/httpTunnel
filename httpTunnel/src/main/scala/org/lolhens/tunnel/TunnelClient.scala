@@ -84,6 +84,7 @@ object TunnelClient extends Tunnel {
                 .alsoTo(
                   Flow[ByteString]
                     .filter(_.nonEmpty)
+                      .map{e => println("received length: " + e.size)}
                     .map(_ => ())
                     .to(httpResponseSignalInlet)
                 )
