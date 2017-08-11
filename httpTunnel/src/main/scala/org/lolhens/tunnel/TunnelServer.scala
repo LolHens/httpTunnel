@@ -65,13 +65,13 @@ object TunnelServer extends Tunnel {
         } yield
           entity.dataBytes
             .limit(maxHttpPacketSize)
-            .toMat(Sink.seq)(Keep.right)
+            .toMat(Sink.fold(ByteString.empty)(_ ++ _))(Keep.right)
             .run()
-            .map(ByteString(_)).map { data =>
-            connection.push(data)
-            val out = connection.pull()
-            HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
-          }
+            .map { data =>
+              connection.push(data)
+              val out = connection.pull()
+              HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
+            }
           ).getOrElse {
           Future.successful(unknownResource)
         }
