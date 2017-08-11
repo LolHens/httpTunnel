@@ -21,13 +21,13 @@ object TunnelServer extends Tunnel {
       connections.get(key)
         .zip(Some(connections)).headOption
         .getOrElse {
-          val newConnection = new Connection(authority)
+          val newConnection = new Connection(id, authority)
           (newConnection, connections + (key -> newConnection))
         }
     }
   }
 
-  class Connection(target: Authority) {
+  class Connection(id: String, target: Authority) {
     private val httpOutBuffer = Atomic(ByteString.empty)
     private val httpInBuffer = Atomic(ByteString.empty)
 
