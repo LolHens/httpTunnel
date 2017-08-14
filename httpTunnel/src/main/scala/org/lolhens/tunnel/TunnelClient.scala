@@ -51,45 +51,33 @@ object TunnelClient extends Tunnel {
           val httpOutBuffer = Atomic(ByteString.empty)
           val httpInBuffer = Atomic(ByteString.empty)
 
-          val (httpResponseSignalInlet, httpResponseSignalOutlet) = coupling[Unit]
+          val (httpResponseSignalInlet, httpResponseSignalOutlet1, httpResponseSignalOutlet2) = coupling2[Unit]
           val (tcpResponseSignalInlet, tcpResponseSignalOutlet) = coupling[Unit]
 
-          httpResponseSignalOutlet
-            .alsoTo {
-              Flow[Unit]
-                .map(_ => httpInBuffer.getAndSet(ByteString.empty))
-                .map { e => println("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-                .via(tcpConnection.flow)
-                .map { e => println("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-                .alsoTo(
-                  Flow[ByteString]
-                    .filter(_.nonEmpty)
-                    .map(_ => ())
-                    .to(tcpResponseSignalInlet)
-                )
-                .map(data => httpOutBuffer.transform(_ ++ data))
-                .to(Sink.ignore)
-            }
-            .to {
-              Flow[Unit]
-                //.map(_ => println("sig1"))
-                .flatMapMerge(2, _ =>
-                Source.tick(250.millis, 50.millis, ()).take(50)
-                  .merge(Source.tick(10.millis, 5.millis, ()).take(50))
-              )
-                .merge(tcpResponseSignalOutlet /*.map(_ => println("sig2"))*/)
-                .merge(Source.tick(0.millis, 200.millis, ()) /*.map(_ => println("sig3"))*/)
-                .map(_ => httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize))))
-                .via(httpConnection)
-                .map{data => httpInBuffer.transform(_ ++ data); data}
-                .to(
-                  Flow[ByteString]
-                    .filter(_.nonEmpty)
-                      .map{e => println("received length: " + e.size)}
-                    .map(_ => ())
-                    .to(httpResponseSignalInlet)
-                )
-            }
+          httpResponseSignalOutlet1
+            .map(_ => httpInBuffer.getAndSet(ByteString.empty))
+            .map { e => println("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+            .via(tcpConnection.flow)
+            .map { e => println("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+            .filter(_.nonEmpty)
+            .map { data => httpOutBuffer.transform(_ ++ data); data }
+            .map(_ => ())
+            .to(tcpResponseSignalInlet)
+            .run()
+
+          httpResponseSignalOutlet2
+            .flatMapMerge(2, _ =>
+              Source.tick(250.millis, 50.millis, ()).take(50)
+                .merge(Source.tick(10.millis, 5.millis, ()).take(50))
+            )
+            .merge(tcpResponseSignalOutlet)
+            .merge(Source.tick(0.millis, 200.millis, ()))
+            .map(_ => httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize))))
+            .via(httpConnection)
+            .filter(_.nonEmpty)
+            .map { data => httpInBuffer.transform(_ ++ data); data }
+            .map(_ => ())
+            .to(httpResponseSignalInlet)
             .run()
 
         }).run().map { e => println(e); e }

@@ -97,6 +97,16 @@ class Tunnel {
     (Sink.fromSubscriber(inlet), Source.fromPublisher(outlet))
   }
 
+  def coupling2[T]: (Sink[T, NotUsed], Source[T, NotUsed], Source[T, NotUsed]) = {
+    val ((inlet, outlet1), outlet2) =
+      Source.asSubscriber[T]
+        .alsoToMat(Sink.asPublisher(false))(Keep.both)
+        .toMat(Sink.asPublisher(false))(Keep.both)
+        .run()
+
+    (Sink.fromSubscriber(inlet), Source.fromPublisher(outlet1), Source.fromPublisher(outlet2))
+  }
+
   /*case class MutableConnector[A, B, ACK](flow: Flow[A, B, NotUsed]) {
     private val connectorActor: ActorRef = MutableConnectorActor.actor(flow)
 
@@ -305,6 +315,50 @@ object Tunnel {
 
   object PublisherActor {
     def props[T]: Props = Props[PublisherActor[T]]
+
+    trait Message
+
+    trait Command
+
+    case object Ack extends Message
+
+    case object Complete extends Command
+
+    case class Failure(throwable: Throwable) extends Command
+
+  }
+
+  class CouplingActor[T] extends ActorPublisher[T] {
+    var buffer: Option[(T, ActorRef)] = None
+
+    override def receive: Receive = {
+      case ActorPublisherMessage.Cancel =>
+        context.stop(self)
+
+      case ActorPublisherMessage.Request(_) =>
+        for ((elem, lastSender) <- buffer) {
+          onNext(elem)
+          lastSender ! PublisherActor.Ack
+          buffer = None
+        }
+
+      case PublisherActor.Complete =>
+        onCompleteThenStop()
+
+      case PublisherActor.Failure(throwable) =>
+        onErrorThenStop(throwable)
+
+      case value: T@unchecked =>
+        if (totalDemand > 0) {
+          onNext(value)
+          sender() ! PublisherActor.Ack
+        } else
+          buffer = Some((value, sender()))
+    }
+  }
+
+  object CouplingActor {
+    def props[T]: Props = Props[CouplingActor[T]]
 
     trait Message
 
