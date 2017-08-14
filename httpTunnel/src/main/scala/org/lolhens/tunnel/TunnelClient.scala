@@ -5,6 +5,7 @@ import java.util.UUID
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
 import akka.stream.scaladsl.{Flow, Sink, Source, Tcp}
+import akka.stream.{OverflowStrategy, ThrottleMode}
 import akka.util.ByteString
 import monix.execution.Scheduler.Implicits.global
 import monix.execution.atomic.Atomic
@@ -51,10 +52,11 @@ object TunnelClient extends Tunnel {
           val httpOutBuffer = Atomic(ByteString.empty)
           val httpInBuffer = Atomic(ByteString.empty)
 
-          val (httpResponseSignalInlet, httpResponseSignalOutlet1, httpResponseSignalOutlet2) = coupling2[Unit]
-          val (tcpResponseSignalInlet, tcpResponseSignalOutlet) = coupling[Unit]
+          //val (httpResponseSignalInlet, httpResponseSignalOutlet1, httpResponseSignalOutlet2) = coupling2[Unit]
+          //val (tcpResponseSignalInlet, tcpResponseSignalOutlet) = coupling[Unit]
+          val (httpResponseSignalInlet, httpResponseSignalOutlet) = coupling[Unit]
 
-          httpResponseSignalOutlet1
+          /*httpResponseSignalOutlet1
             .map(_ => httpInBuffer.getAndSet(ByteString.empty))
             .map { e => println("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
             .via(tcpConnection.flow)
@@ -63,12 +65,44 @@ object TunnelClient extends Tunnel {
             .map { data => httpOutBuffer.transform(_ ++ data); data }
             .map(_ => ())
             .to(tcpResponseSignalInlet)
+            .run()*/
+
+          Flow[Unit]
+            .buffer(4, OverflowStrategy.dropNew)
+            .throttle(1, 5.millis, 1, ThrottleMode.Shaping)
+            .map(_ => httpInBuffer.getAndSet(ByteString.empty))
+            .map { e => println("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+            .via(tcpConnection.flow)
+            .map { e => println("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+            .filter(_.nonEmpty)
+            .map { data => httpOutBuffer.transform(_ ++ data); data }
+            .map(_ => ())
+            .join {
+              Flow[Unit]
+                .merge(Source.tick(0.millis, 500.millis, ()))
+                .merge(
+                  httpResponseSignalOutlet
+                  .flatMapMerge(2, _ =>
+                    Source.tick(100.millis, 200.millis, ()).take(25)
+                    .merge(Source.tick(10.millis, 10.millis, ()).take(20))
+                  )
+                )
+                .buffer(4, OverflowStrategy.dropNew)
+                .throttle(1, 10.millis, 1, ThrottleMode.Shaping)
+                .map(_ => httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize))))
+                .via(httpConnection)
+                .filter(_.nonEmpty)
+                .map { data => httpInBuffer.transform(_ ++ data); data }
+                .map { e => println("received " + e.size) }
+                .map(_ => ())
+                .alsoTo(httpResponseSignalInlet)
+            }
             .run()
 
-          httpResponseSignalOutlet2
+          /*httpResponseSignalOutlet2
             .flatMapMerge(2, _ =>
-              Source.tick(250.millis, 50.millis, ()).take(50)
-                .merge(Source.tick(10.millis, 5.millis, ()).take(50))
+              Source.tick(0.millis, 50.millis, ()).take(10)
+                //.merge(Source.tick(10.millis, 5.millis, ()).take(50))
             )
             .merge(tcpResponseSignalOutlet)
             .merge(Source.tick(0.millis, 200.millis, ()))
@@ -76,9 +110,10 @@ object TunnelClient extends Tunnel {
             .via(httpConnection)
             .filter(_.nonEmpty)
             .map { data => httpInBuffer.transform(_ ++ data); data }
+              .map{e => println("received " + e.size)}
             .map(_ => ())
             .to(httpResponseSignalInlet)
-            .run()
+            .run()*/
 
         }).run().map { e => println(e); e }
 
