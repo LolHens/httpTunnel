@@ -4,7 +4,7 @@ import java.util.UUID
 
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
-import akka.stream.ThrottleMode
+import akka.stream.{OverflowStrategy, ThrottleMode}
 import akka.stream.scaladsl.{Flow, Sink, Source, Tcp}
 import akka.util.ByteString
 import monix.execution.Scheduler.Implicits.global
@@ -52,27 +52,25 @@ object TunnelClient extends Tunnel {
 
           Flow[ByteString]
             .map { e => println("signal1 " + id); e }
-            .merge(httpResponseSignalOutlet.map(_ => ByteString.empty).map { e => println("signal2 " + id); e })
-            .flatMapMerge(2, e => Source.single(e).concat(
-              Source.tick(10.millis, 10.millis, ByteString.empty).take(20)
-                .concat(Source.tick(0.millis, 100.millis, ByteString.empty).take(20))
-                .concat(Source.tick(0.millis, 500.millis, ByteString.empty).take(10))
-            ))
-            .batch(Int.MaxValue, e => e)((last, e) => last ++ e)
-            .throttle(1, 10.millis, 1, ThrottleMode.Shaping)
-            .map { e => println("signal " + id); e }
-            .keepAlive(2000.millis, () => ByteString.empty)
+            .merge(httpResponseSignalOutlet.delay(10.millis).map(_ => ByteString.empty).map { e => println("signal2 " + id); e })
+
+            //.batch(Int.MaxValue, e => e)((last, e) => if (e.isEmpty) last else last ++ e)
+            //.async
+            //.throttle(1, 10.millis, 1, ThrottleMode.Shaping)
             //.map { e => println("signal " + id); e }
+            .keepAlive(2000.millis, () => ByteString.empty)
+            .map { e => if (e.nonEmpty) println("SEND"); e }
             .via(httpConnection)
             .filter(_.nonEmpty)
             .map { e => println("received " + e.size); e }
-            .alsoTo(Flow[ByteString].map(_ => ()).to(httpResponseSignalInlet))
+            .alsoTo(Flow[ByteString].map(_ => ()).buffer(2, OverflowStrategy.dropNew).to(httpResponseSignalInlet))
             .join {
               Flow[ByteString]
                 .map { e => println("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
                 .via(tcpConnection.flow)
                 .filter(_.nonEmpty)
                 .map { e => println("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+                .buffer(20, OverflowStrategy.backpressure)
             }
             .run()
 
