@@ -37,7 +37,9 @@ object TunnelServer extends Tunnel {
       Source.queue[ByteString](2, OverflowStrategy.backpressure)
         .filter(_.nonEmpty)
         .map { e => system.log.info("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+        .backpressureTimeout(1.second)
         .via(tcpStream)
+        .backpressureTimeout(1.second)
         .map { e => system.log.info("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
         .keepAlive(10.millis, () => ByteString.empty)
         .batch(Int.MaxValue, e => e)((last, e) => if (e.isEmpty) last else last ++ e)
