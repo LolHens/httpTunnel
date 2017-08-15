@@ -38,12 +38,12 @@ object TunnelServer extends Tunnel {
     private val httpInBuffer =
       Source.queue[ByteString](2, OverflowStrategy.backpressure)
         .filter(_.nonEmpty)
-        .map { e => system.log.info("REC " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+        .map { e => system.log.info("REC " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
         .backpressureTimeout(10.second)
         .via(tcpStream)
         .filter(_.nonEmpty)
         .backpressureTimeout(10.second)
-        .map { e => system.log.info("SND " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+        .map { e => system.log.info("SND " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
         .to(Sink.foreach(data => httpOutBuffer.transform(_ ++ data)))
         .run()
 

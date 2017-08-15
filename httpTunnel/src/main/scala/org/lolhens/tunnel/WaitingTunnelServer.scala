@@ -5,10 +5,10 @@ import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.HttpMethods.GET
 import akka.http.scaladsl.model.Uri.Authority
 import akka.http.scaladsl.model._
-import akka.stream.scaladsl.{Flow, Sink, Tcp}
+import akka.stream.OverflowStrategy
+import akka.stream.scaladsl.{Flow, Keep, Sink, Source, Tcp}
 import akka.util.ByteString
 import monix.execution.atomic.Atomic
-import org.lolhens.tunnel.Tunnel.PublisherActor
 
 import scala.concurrent.{Future, Promise}
 import scala.io.StdIn
@@ -24,14 +24,14 @@ object WaitingTunnelServer extends Tunnel {
       val tcpStream: Flow[ByteString, ByteString, Any] =
         Flow[ByteString].map { e => println("REQ: " + time + " " + e); e }.via(Tcp().outgoingConnection(target.host.address(), target.port)).map { e => println("RES: " + time + " " + e); e }
 
-      val (tcpInInlet, tcpInOutlet) = actorSource[ByteString]
+      val (tcpInInlet, tcpInOutlet) =
+        Source.queue[ByteString](2, OverflowStrategy.backpressure).toMat(Sink.asPublisher(false))(Keep.both).run()
 
-      tcpInOutlet.via(tcpStream).to(Sink.actorRef(self, ConnectionActor.TcpComplete)).run()
+      Source.fromPublisher(tcpInOutlet).via(tcpStream).to(Sink.actorRef(self, ConnectionActor.TcpComplete)).run()
 
       var lastBuffer: ByteString = ByteString.empty
       var buffer: ByteString = ByteString.empty
       var requestPromise: Option[Promise[ByteString]] = None
-      var donePromise: Option[Promise[Unit]] = None
 
       override def receive: Receive = {
         case ConnectionActor.RequestData(resend, dataPromise) =>
@@ -45,17 +45,10 @@ object WaitingTunnelServer extends Tunnel {
           else
             requestPromise = Some(dataPromise)
           println(id + " " + requestPromise)
+
         case ConnectionActor.PutData(data, promise) =>
-          tcpInInlet ! data
-          donePromise = Some(promise)
-
-        case PublisherActor.Ack =>
-          donePromise match {
-            case Some(promise) =>
-              promise.success(())
-              donePromise = None
-
-            case None =>
+          tcpInInlet.offer(data).foreach { _ =>
+            promise.success(())
           }
 
         case ConnectionActor.TcpComplete =>

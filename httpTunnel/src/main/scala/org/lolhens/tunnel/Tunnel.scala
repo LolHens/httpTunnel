@@ -5,7 +5,7 @@ import java.util.Base64
 import javax.net.ssl.SSLContext
 
 import akka.NotUsed
-import akka.actor.{ActorRef, ActorSystem, Props}
+import akka.actor.ActorSystem
 import akka.event.LoggingAdapter
 import akka.http.scaladsl._
 import akka.http.scaladsl.model.HttpHeader.ParsingResult
@@ -13,13 +13,10 @@ import akka.http.scaladsl.model.Uri.Authority
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.ws.{BinaryMessage, Message}
 import akka.http.scaladsl.settings.ClientConnectionSettings
-import akka.stream.actor.{ActorPublisher, ActorPublisherMessage}
-import akka.stream.impl.{NonblockingQueueSink, QueueSink}
-import akka.stream.scaladsl.{Flow, Keep, Sink, SinkNonblockingQueueWithCancel, SinkQueueWithCancel, Source, SourceQueueWithComplete}
-import akka.stream.{ActorMaterializer, OverflowStrategy}
+import akka.stream.ActorMaterializer
+import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.util.ByteString
 import com.typesafe.sslconfig.akka.AkkaSSLConfig
-import org.lolhens.tunnel.Tunnel.PublisherActor
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.Try
@@ -67,23 +64,7 @@ class Tunnel {
   def proxyTransport(proxyHost: String, proxyPort: Int): ClientTransport = new ClientTransport {
     override def connectTo(host: String, port: Int, settings: ClientConnectionSettings)
                           (implicit system: ActorSystem): Flow[ByteString, ByteString, Future[Http.OutgoingConnection]] =
-      Flow[ByteString]
-        /*.map { byteString =>
-          val lines = byteString.utf8String.split("\r\n|\n", -1).toList
-          val firstLine = lines.headOption.getOrElse("")
-
-          if (firstLine.startsWith("GET ") && firstLine.endsWith(" HTTP/1.1")) {
-            val newFirstLine = s"GET http://$host${firstLine.drop(4)}"
-            val newLines = newFirstLine +: lines.drop(1)
-
-            println(ByteString.fromString(newLines.mkString("\r\n")).utf8String)
-            ByteString.fromString(newLines.mkString("\r\n"))
-          } else
-            byteString
-        }*/
-        .viaMat(
-        ClientTransport.TCP.connectTo(proxyHost, proxyPort, settings)
-      )(Keep.right)
+      Flow[ByteString].viaMat(ClientTransport.TCP.connectTo(proxyHost, proxyPort, settings))(Keep.right)
   }
 
   def header(key: String, value: String): HttpHeader =
@@ -97,148 +78,6 @@ class Tunnel {
 
     (Sink.fromSubscriber(inlet), Source.fromPublisher(outlet))
   }
-
-  def coupling2[T]: (Sink[T, NotUsed], Source[T, NotUsed], Source[T, NotUsed]) = {
-    val ((inlet, outlet1), outlet2) =
-      Source.asSubscriber[T]
-        .alsoToMat(Sink.asPublisher(false))(Keep.both)
-        .toMat(Sink.asPublisher(false))(Keep.both)
-        .run()
-
-    (Sink.fromSubscriber(inlet), Source.fromPublisher(outlet1), Source.fromPublisher(outlet2))
-  }
-
-  def queue[T](bufferSize: Int = 1,
-               overflowStrategy: OverflowStrategy = OverflowStrategy.backpressure): (SourceQueueWithComplete[T], SinkNonblockingQueueWithCancel[T]) =
-      Source.queue[T](bufferSize, overflowStrategy)
-        .toMat(nonblockingQueueSink())(Keep.both)
-        .run()
-
-  def nonblockingQueueSink[T](): Sink[T, SinkNonblockingQueueWithCancel[T]] =
-    Sink.fromGraph(new NonblockingQueueSink())
-
-  /*case class MutableConnector[A, B, ACK](flow: Flow[A, B, NotUsed]) {
-    private val connectorActor: ActorRef = MutableConnectorActor.actor(flow)
-
-    def appendSource_=(source: Source[A, NotUsed]): Unit = {
-      _source = Some(source)
-    }
-
-    def setSink_=(sink: (Sink[B, NotUsed], Source[ACK, NotUsed])): Unit = {
-      _sink = Some(sink)
-    }
-  }
-
-  object MutableConnector {
-
-    class MutableConnectorActor[A, B, ACK](flow: Flow[A, B, NotUsed]) extends Actor with Stash {
-      val (flowSink, flowSource) = toSinkAndSource(flow)
-      val (flowInInlet, flowInOutlet) = actorSource[A]
-      flowInOutlet
-        .via(flow)
-        .to(Sink.actorRefWithAck[B](
-          self,
-          MutableConnectorActor.FlowInit,
-          MutableConnectorActor.FlowAck,
-          MutableConnectorActor.FlowComplete,
-          MutableConnectorActor.FlowFailure(_)))
-        .run()
-
-      var sourceActor: Option[ActorRef] = None
-
-      var sink: Option[(Sink[T, NotUsed], Source[ACK, NotUsed])] = None
-      var sinkActor: Option[ActorRef] = None
-
-      var buffer: Option[B] = None
-
-      override def receive: Receive = {
-        case appendSource: MutableConnectorActor.AppendSource[T] =>
-          val selfSink = Sink.actorRefWithAck[T](self,
-            MutableConnectorActor.SourceInit,
-            MutableConnectorActor.SourceAck,
-            MutableConnectorActor.SourceComplete,
-            MutableConnectorActor.SourceFailure(_))
-
-          appendSource.source.to(selfSink).run()
-
-        case setSink: MutableConnectorActor.SetSink[T, ACK] =>
-          sink = Some(setSink.sink)
-
-          val (inlet, outlet) = actorSource[T]
-          outlet.to(setSink.sink._1).run()
-          sinkActor = Some(inlet)
-
-          setSink.sink._2
-            .map(_ => MutableConnectorActor.FeedbackAck(setSink.sink))
-            .to(Sink.actorRef(self, MutableConnectorActor.Complete))
-
-          sourceActor.foreach { ref =>
-            ref ! MutableConnectorActor.Ack
-            sourceActor = None
-          }
-
-          buffer.foreach { elem =>
-            sinkActor.get ! elem
-          }
-
-        case MutableConnectorActor.Init =>
-          if (sink.nonEmpty)
-            sender() ! MutableConnectorActor.Ack
-          else
-            sourceActor = Some(sender())
-
-        case MutableConnectorActor.Complete =>
-          sinkActor.foreach(_ ! PublisherActor.Complete)
-
-        case MutableConnectorActor.Failure(throwable) =>
-          sinkActor.foreach(_ ! PublisherActor.Failure(throwable))
-
-        case sourceElem: MutableConnectorActor.SourceElem[A] =>
-          buffer = Some(sourceElem.elem)
-          sinkActor.get ! sourceElem.elem
-
-        case MutableConnectorActor.FeedbackAck(sinkRef) if sink.contains(sinkRef) =>
-          buffer = None
-          sourceActor.foreach(_ ! MutableConnectorActor.SourceAck)
-      }
-    }
-
-    object MutableConnectorActor {
-      def props[A, B, ACK](flow: Flow[A, B, NotUsed]): Props = Props[MutableConnectorActor[A, B, ACK](flow)
-      ]
-
-      def actor[A, B, ACK](flow: Flow[A, B, NotUsed])
-                          (implicit actorRefFactory: ActorRefFactory) = actorRefFactory.actorOf(props[A, B, ACK](flow))
-
-      case class AppendSource[T](source: Source[T, NotUsed])
-
-      case class SetSink[T, ACK](sink: (Sink[T, NotUsed], Source[ACK, NotUsed]))
-
-      case object FlowInit
-
-      case class FlowElem[T](elem: T)
-
-      case object FlowAck
-
-      case object FlowComplete
-
-      case class FlowFailure(throwable: Throwable)
-
-      case object SourceInit
-
-      case class SourceElem[T](elem: T)
-
-      case object SourceAck
-
-      case object SourceComplete
-
-      case class SourceFailure(throwable: Throwable)
-
-      case class FeedbackAck(any: Any)
-
-    }
-
-  }*/
 
   def toSinkAndSource[A, B](flow: Flow[A, B, NotUsed]): (Sink[A, NotUsed], Source[B, NotUsed]) = {
     val (inlet, outlet) =
@@ -280,106 +119,8 @@ class Tunnel {
       )
       .toMat(Sink.head)(Keep.right)
       .run()
-
-  def actorSource[T]: (ActorRef, Source[T, NotUsed]) = {
-    val (actorRef, publisher) =
-      Source.actorPublisher[T](PublisherActor.props[T])
-        .toMat(Sink.asPublisher(false))(Keep.both)
-        .run()
-
-    (actorRef, Source.fromPublisher(publisher))
-  }
 }
 
 object Tunnel {
-  lazy val firstTime = System.currentTimeMillis()
-
-  class PublisherActor[T] extends ActorPublisher[T] {
-    var buffer: Option[(T, ActorRef)] = None
-
-    override def receive: Receive = {
-      case ActorPublisherMessage.Cancel =>
-        context.stop(self)
-
-      case ActorPublisherMessage.Request(_) =>
-        for ((elem, lastSender) <- buffer) {
-          onNext(elem)
-          lastSender ! PublisherActor.Ack
-          buffer = None
-        }
-
-      case PublisherActor.Complete =>
-        onCompleteThenStop()
-
-      case PublisherActor.Failure(throwable) =>
-        onErrorThenStop(throwable)
-
-      case value: T@unchecked =>
-        if (totalDemand > 0) {
-          onNext(value)
-          sender() ! PublisherActor.Ack
-        } else
-          buffer = Some((value, sender()))
-    }
-  }
-
-  object PublisherActor {
-    def props[T]: Props = Props[PublisherActor[T]]
-
-    trait Message
-
-    trait Command
-
-    case object Ack extends Message
-
-    case object Complete extends Command
-
-    case class Failure(throwable: Throwable) extends Command
-
-  }
-
-  class CouplingActor[T] extends ActorPublisher[T] {
-    var buffer: Option[(T, ActorRef)] = None
-
-    override def receive: Receive = {
-      case ActorPublisherMessage.Cancel =>
-        context.stop(self)
-
-      case ActorPublisherMessage.Request(_) =>
-        for ((elem, lastSender) <- buffer) {
-          onNext(elem)
-          lastSender ! PublisherActor.Ack
-          buffer = None
-        }
-
-      case PublisherActor.Complete =>
-        onCompleteThenStop()
-
-      case PublisherActor.Failure(throwable) =>
-        onErrorThenStop(throwable)
-
-      case value: T@unchecked =>
-        if (totalDemand > 0) {
-          onNext(value)
-          sender() ! PublisherActor.Ack
-        } else
-          buffer = Some((value, sender()))
-    }
-  }
-
-  object CouplingActor {
-    def props[T]: Props = Props[CouplingActor[T]]
-
-    trait Message
-
-    trait Command
-
-    case object Ack extends Message
-
-    case object Complete extends Command
-
-    case class Failure(throwable: Throwable) extends Command
-
-  }
-
+  lazy val firstTime: Long = System.currentTimeMillis()
 }

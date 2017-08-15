@@ -71,15 +71,14 @@ object TunnelClient extends Tunnel {
             .via(httpConnection)
             .filter(_.nonEmpty)
             .map { e => signalHttpResponse.set(true); e }
-            //.alsoTo(Flow[ByteString].map(_ => ()).to(httpResponseSignalInlet))
             .join {
-            Flow[ByteString]
-              .map { e => system.log.info("REC " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-              .via(tcpConnection.flow)
-              .backpressureTimeout(10.second)
-              .filter(_.nonEmpty)
-              .map { e => system.log.info("SND " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-          }
+              Flow[ByteString]
+                .map { e => system.log.info("REC " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+                .via(tcpConnection.flow)
+                .backpressureTimeout(10.second)
+                .filter(_.nonEmpty)
+                .map { e => system.log.info("SND " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+            }
             .run()
 
         }).run().map { e => println(e); e }
