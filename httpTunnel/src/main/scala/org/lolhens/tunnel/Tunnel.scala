@@ -13,9 +13,10 @@ import akka.http.scaladsl.model.Uri.Authority
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.ws.{BinaryMessage, Message}
 import akka.http.scaladsl.settings.ClientConnectionSettings
-import akka.stream.ActorMaterializer
 import akka.stream.actor.{ActorPublisher, ActorPublisherMessage}
-import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
+import akka.stream.impl.{NonblockingQueueSink, QueueSink}
+import akka.stream.scaladsl.{Flow, Keep, Sink, SinkNonblockingQueueWithCancel, SinkQueueWithCancel, Source, SourceQueueWithComplete}
+import akka.stream.{ActorMaterializer, OverflowStrategy}
 import akka.util.ByteString
 import com.typesafe.sslconfig.akka.AkkaSSLConfig
 import org.lolhens.tunnel.Tunnel.PublisherActor
@@ -106,6 +107,15 @@ class Tunnel {
 
     (Sink.fromSubscriber(inlet), Source.fromPublisher(outlet1), Source.fromPublisher(outlet2))
   }
+
+  def queue[T](bufferSize: Int = 1,
+               overflowStrategy: OverflowStrategy = OverflowStrategy.backpressure): (SourceQueueWithComplete[T], SinkNonblockingQueueWithCancel[T]) =
+      Source.queue[T](bufferSize, overflowStrategy)
+        .toMat(nonblockingQueueSink())(Keep.both)
+        .run()
+
+  def nonblockingQueueSink[T](): Sink[T, SinkNonblockingQueueWithCancel[T]] =
+    Sink.fromGraph(new NonblockingQueueSink())
 
   /*case class MutableConnector[A, B, ACK](flow: Flow[A, B, NotUsed]) {
     private val connectorActor: ActorRef = MutableConnectorActor.actor(flow)

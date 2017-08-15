@@ -4,10 +4,11 @@ import java.util.UUID
 
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
-import akka.stream.{OverflowStrategy, ThrottleMode}
+import akka.stream.OverflowStrategy
 import akka.stream.scaladsl.{Flow, Sink, Source, Tcp}
 import akka.util.ByteString
 import monix.execution.Scheduler.Implicits.global
+import monix.execution.atomic.Atomic
 
 import scala.concurrent.duration._
 import scala.io.StdIn
@@ -23,14 +24,10 @@ object TunnelClient extends Tunnel {
     } {
       val server = proxyOption.getOrElse(tunnelServer)
       println(server)
-      println(server.host.address())
-      println(server.host.toString())
 
       val tcpServer = Tcp().bind("localhost", localPort)
         .to(Sink.foreach { tcpConnection =>
           val id = UUID.randomUUID().toString
-
-          //val lastReq = Atomic(None: Option[HttpRequest])
 
           val httpConnection = Flow[ByteString]
             .map(data => HttpRequest(
@@ -39,37 +36,39 @@ object TunnelClient extends Tunnel {
               headers = List(headers.Host(tunnelServer)),
               entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, data)
             ))
-            //.map { e => lastReq.set(Some(e)); e }
             .via(Http().outgoingConnection(server.host.toString(), server.port))
             .flatMapConcat {
               case HttpResponse(StatusCodes.OK, _, entity: ResponseEntity, _) => entity.dataBytes
-              case r =>
-                //println("ERR3: " + r + "   " + lastReq.get)
-                Source.empty[ByteString]
+              case _ => Source.empty[ByteString]
             }
 
           val (httpResponseSignalInlet, httpResponseSignalOutlet) = coupling[Unit]
 
+          val speedup = Atomic(0)
+
           Flow[ByteString]
             .map { e => println("signal1 " + id); e }
-            .merge(httpResponseSignalOutlet.delay(10.millis).map(_ => ByteString.empty).map { e => println("signal2 " + id); e })
-
-            //.batch(Int.MaxValue, e => e)((last, e) => if (e.isEmpty) last else last ++ e)
-            //.async
-            //.throttle(1, 10.millis, 1, ThrottleMode.Shaping)
-            //.map { e => println("signal " + id); e }
+            .merge(httpResponseSignalOutlet.map(_ => ByteString.empty).map { e => println("signal2 " + id); e })
+            .via(Flow[ByteString]
+              .map { e => speedup.set(100); Some(e) }
+              .keepAlive(10.millis, () => {
+                val s = speedup.transformAndExtract(e => if (e == 0) (0, 0) else (e, e - 1))
+                if (s > 0) Some(ByteString.empty) else None
+              })
+              .mapConcat[ByteString](_.toList)
+            )
             .keepAlive(2000.millis, () => ByteString.empty)
-            .map { e => if (e.nonEmpty) println("SEND"); e }
+            .map { e => if (e.nonEmpty) system.log.info("SEND"); e }
             .via(httpConnection)
             .filter(_.nonEmpty)
             .map { e => println("received " + e.size); e }
             .alsoTo(Flow[ByteString].map(_ => ()).buffer(2, OverflowStrategy.dropNew).to(httpResponseSignalInlet))
             .join {
               Flow[ByteString]
-                .map { e => println("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+                .map { e => system.log.info("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
                 .via(tcpConnection.flow)
                 .filter(_.nonEmpty)
-                .map { e => println("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+                .map { e => system.log.info("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
                 .buffer(20, OverflowStrategy.backpressure)
             }
             .run()

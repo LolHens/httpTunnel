@@ -4,7 +4,8 @@ import akka.http.javadsl.model.RequestEntity
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model.Uri.Authority
 import akka.http.scaladsl.model._
-import akka.stream.scaladsl.{Keep, Sink, Tcp}
+import akka.stream.OverflowStrategy
+import akka.stream.scaladsl.{Keep, Sink, Source, Tcp}
 import akka.util.ByteString
 import monix.execution.atomic.Atomic
 
@@ -29,29 +30,23 @@ object TunnelServer extends Tunnel {
   }
 
   class Connection(id: String, target: Authority) {
+    private lazy val tcpStream = Tcp().outgoingConnection(target.host.address(), target.port)
+
     private val httpOutBuffer = Atomic(ByteString.empty)
-    private val httpInBuffer = Atomic(ByteString.empty)
+    private val httpInBuffer =
+      Source.queue[ByteString](5, OverflowStrategy.backpressure)
+        .filter(_.nonEmpty)
+        .map { e => system.log.info("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+        .via(tcpStream)
+        .map { e => system.log.info("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+        .to(Sink.foreach(data => httpOutBuffer.transform(_ ++ data)))
+        .run()
 
-    val (tcpOutSignalInlet, tcpOutSignalOutlet) = actorSource[Unit]
+    def push(data: ByteString): Future[Unit] =
+      httpInBuffer.offer(data).map(_ => ())
 
-    def push(data: ByteString): Unit = {
-      httpInBuffer.transform(_ ++ data)
-      tcpOutSignalInlet ! ()
-    }
-
-    def pull(): ByteString = httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize)))
-
-    private val tcpStream = Tcp().outgoingConnection(target.host.address(), target.port)
-
-    tcpOutSignalOutlet
-      .map(_ => httpInBuffer.getAndSet(ByteString.empty))
-      .filter(_.nonEmpty)
-      .map { e => println("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-      .via(tcpStream)
-      .map { e => println("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-      .map(data => httpOutBuffer.transform(_ ++ data))
-      .to(Sink.ignore)
-      .run()
+    def pull(): ByteString =
+      httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize)))
   }
 
   def main(args: Array[String]): Unit = {
@@ -64,23 +59,24 @@ object TunnelServer extends Tunnel {
           connection = ConnectionManager.get(id, target)
         } yield {
           //println("req")
-          entity.dataBytes
-            .limit(maxHttpPacketSize)
-            .toMat(Sink.fold(ByteString.empty)(_ ++ _))(Keep.right)
-            .run()
-            .map { data =>
-              connection.push(data)
-              val out = connection.pull()
-              //println("received " + data.size + " pushing " + out.size)
-              HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
-            }
+          for {
+            data <- entity.dataBytes
+              .limit(maxHttpPacketSize)
+              .toMat(Sink.fold(ByteString.empty)(_ ++ _))(Keep.right)
+              .run()
+            _ <- connection.push(data)
+          } yield {
+            val out = connection.pull()
+            //println("received " + data.size + " pushing " + out.size)
+            HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
+          }
         }).getOrElse {
-          println("ERR1: " + req)
+          system.log.error("ERR1: " + req)
           Future.successful(unknownResource)
         }
 
-      case e =>
-        println("ERR2: " + e)
+      case req =>
+        system.log.error("ERR2: " + req)
         Future.successful(unknownResource)
     }
 
