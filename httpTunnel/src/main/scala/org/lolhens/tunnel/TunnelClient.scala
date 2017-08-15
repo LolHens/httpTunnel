@@ -66,18 +66,18 @@ object TunnelClient extends Tunnel {
             )
             .keepAlive(1000.millis, () => ByteString.empty)
             .map { e => if (e.nonEmpty) system.log.info("SEND"); e }
-            .mapConcat(_.grouped(maxHttpPacketSize).toList)
-            .backpressureTimeout(1.second)
+            .mapConcat(data => if (data.isEmpty) List(data) else data.grouped(maxHttpPacketSize).toList)
+            .backpressureTimeout(10.second)
             .via(httpConnection)
-            .backpressureTimeout(1.second)
-            .filter(_.nonEmpty)
+            .backpressureTimeout(10.second)
             .alsoTo(Flow[ByteString].map(_ => ()).to(httpResponseSignalInlet))
+            .filter(_.nonEmpty)
             .join {
               Flow[ByteString]
                 .map { e => system.log.info("REC " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-                .backpressureTimeout(1.second)
+                .backpressureTimeout(10.second)
                 .via(tcpConnection.flow)
-                .backpressureTimeout(1.second)
+                .backpressureTimeout(10.second)
                 .filter(_.nonEmpty)
                 .map { e => system.log.info("SND " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
             }

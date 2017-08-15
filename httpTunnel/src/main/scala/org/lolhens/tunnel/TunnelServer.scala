@@ -32,17 +32,17 @@ object TunnelServer extends Tunnel {
   }
 
   class Connection(id: String, target: Authority) {
-    private lazy val tcpStream = Tcp().outgoingConnection(target.host.address(), target.port)
+    private val tcpStream = Tcp().outgoingConnection(target.host.address(), target.port)
 
     private val httpOutBuffer = Atomic(ByteString.empty)
     private val httpInBuffer =
       Source.queue[ByteString](2, OverflowStrategy.backpressure)
         .filter(_.nonEmpty)
         .map { e => system.log.info("REC " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-        .backpressureTimeout(1.second)
+        .backpressureTimeout(10.second)
         .via(tcpStream)
         .filter(_.nonEmpty)
-        .backpressureTimeout(1.second)
+        .backpressureTimeout(10.second)
         .map { e => system.log.info("SND " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
         .to(Sink.foreach(data => httpOutBuffer.transform(_ ++ data)))
         .run()
@@ -70,7 +70,6 @@ object TunnelServer extends Tunnel {
           _ <- connection.push(data)
           out = connection.pull()
         } yield {
-          //println("received " + data.size + " pushing " + out.size)
           HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
         }).getOrElse {
           system.log.error("ERR1: " + req)
