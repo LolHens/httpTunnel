@@ -7,6 +7,7 @@ import akka.http.scaladsl.model._
 import akka.stream.OverflowStrategy
 import akka.stream.scaladsl.{Keep, Sink, Source, Tcp}
 import akka.util.ByteString
+import monix.execution.Scheduler.Implicits.global
 import monix.execution.atomic.Atomic
 
 import scala.concurrent.Future
@@ -33,25 +34,24 @@ object TunnelServer extends Tunnel {
   class Connection(id: String, target: Authority) {
     private lazy val tcpStream = Tcp().outgoingConnection(target.host.address(), target.port)
 
-    private val (httpInBuffer, httpOutBuffer) =
+    private val httpOutBuffer = Atomic(ByteString.empty)
+    private val httpInBuffer =
       Source.queue[ByteString](2, OverflowStrategy.backpressure)
         .filter(_.nonEmpty)
-        .map { e => system.log.info("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+        .map { e => system.log.info("REC " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
         .backpressureTimeout(1.second)
         .via(tcpStream)
+        .filter(_.nonEmpty)
         .backpressureTimeout(1.second)
-        .map { e => system.log.info("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-        .keepAlive(10.millis, () => ByteString.empty)
-        .batch(Int.MaxValue, e => e)((last, e) => if (e.isEmpty) last else last ++ e)
-        .mapConcat(_.grouped(maxHttpPacketSize).toList)
-        .toMat(Sink.queue())(Keep.both)
+        .map { e => system.log.info("SND " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+        .to(Sink.foreach(data => httpOutBuffer.transform(_ ++ data)))
         .run()
 
     def push(data: ByteString): Future[Unit] =
       httpInBuffer.offer(data).map(_ => ())
 
-    def pull(): Future[ByteString] =
-      httpOutBuffer.pull().map(_.getOrElse(ByteString.empty))
+    def pull(): ByteString =
+      httpOutBuffer.transformAndExtract(buffer => (buffer.take(maxHttpPacketSize), buffer.drop(maxHttpPacketSize)))
   }
 
   def main(args: Array[String]): Unit = {
@@ -62,19 +62,16 @@ object TunnelServer extends Tunnel {
           id <- pathParts.headOption
           target <- pathParts.lift(1).flatMap(parseAuthority)
           connection = ConnectionManager.get(id, target)
+        } yield for {
+          data <- entity.dataBytes
+            .limit(maxHttpPacketSize)
+            .toMat(Sink.fold(ByteString.empty)(_ ++ _))(Keep.right)
+            .run()
+          _ <- connection.push(data)
+          out = connection.pull()
         } yield {
-          //println("req")
-          for {
-            data <- entity.dataBytes
-              .limit(maxHttpPacketSize)
-              .toMat(Sink.fold(ByteString.empty)(_ ++ _))(Keep.right)
-              .run()
-            _ <- connection.push(data)
-            out <- connection.pull()
-          } yield {
-            //println("received " + data.size + " pushing " + out.size)
-            HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
-          }
+          //println("received " + data.size + " pushing " + out.size)
+          HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
         }).getOrElse {
           system.log.error("ERR1: " + req)
           Future.successful(unknownResource)

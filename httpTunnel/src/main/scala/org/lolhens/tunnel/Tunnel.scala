@@ -34,7 +34,7 @@ class Tunnel {
 
   val unknownResource = HttpResponse(404, entity = "Unknown resource!")
 
-  val maxHttpPacketSize = 10000
+  val maxHttpPacketSize = 12000
 
   def toBase64(data: ByteString): ByteString = ByteString(Base64.getEncoder.encode(data.asByteBuffer))
   def fromBase64(data: ByteString): ByteString = ByteString(Base64.getDecoder.decode(data.asByteBuffer))
