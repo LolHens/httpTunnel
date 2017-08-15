@@ -10,6 +10,7 @@ import akka.util.ByteString
 import monix.execution.atomic.Atomic
 
 import scala.concurrent.Future
+import scala.concurrent.duration._
 import scala.io.StdIn
 
 object TunnelServer extends Tunnel {
@@ -32,21 +33,23 @@ object TunnelServer extends Tunnel {
   class Connection(id: String, target: Authority) {
     private lazy val tcpStream = Tcp().outgoingConnection(target.host.address(), target.port)
 
-    private val httpOutBuffer = Atomic(ByteString.empty)
-    private val httpInBuffer =
-      Source.queue[ByteString](5, OverflowStrategy.backpressure)
+    private val (httpInBuffer, httpOutBuffer) =
+      Source.queue[ByteString](2, OverflowStrategy.backpressure)
         .filter(_.nonEmpty)
         .map { e => system.log.info("REQ " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
         .via(tcpStream)
         .map { e => system.log.info("RES " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-        .to(Sink.foreach(data => httpOutBuffer.transform(_ ++ data)))
+        .keepAlive(10.millis, () => ByteString.empty)
+        .batch(Int.MaxValue, e => e)((last, e) => if (e.isEmpty) last else last ++ e)
+        .mapConcat(_.grouped(maxHttpPacketSize).toList)
+        .toMat(Sink.queue())(Keep.both)
         .run()
 
     def push(data: ByteString): Future[Unit] =
       httpInBuffer.offer(data).map(_ => ())
 
-    def pull(): ByteString =
-      httpOutBuffer.transformAndExtract(data => (data.take(maxHttpPacketSize), data.drop(maxHttpPacketSize)))
+    def pull(): Future[ByteString] =
+      httpOutBuffer.pull().map(_.getOrElse(ByteString.empty))
   }
 
   def main(args: Array[String]): Unit = {
@@ -65,8 +68,8 @@ object TunnelServer extends Tunnel {
               .toMat(Sink.fold(ByteString.empty)(_ ++ _))(Keep.right)
               .run()
             _ <- connection.push(data)
+            out <- connection.pull()
           } yield {
-            val out = connection.pull()
             //println("received " + data.size + " pushing " + out.size)
             HttpResponse(entity = HttpEntity.Strict(ContentTypes.`application/octet-stream`, out))
           }
