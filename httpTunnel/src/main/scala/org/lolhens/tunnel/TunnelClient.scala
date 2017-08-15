@@ -41,46 +41,45 @@ object TunnelClient extends Tunnel {
               case _ => Source.empty[ByteString]
             }
 
-          val (httpResponseSignalInlet, httpResponseSignalOutlet) = coupling[Unit]
-
-          val speedup = Atomic(0)
-          val speedup2 = Atomic(0)
+          val signalHttpResponse = Atomic(false)
+          val connectionVeryActive = Atomic(0)
+          val connectionActive = Atomic(0)
 
           Flow[ByteString]
-            .merge(httpResponseSignalOutlet.map(_ => ByteString.empty))
-            .via(Flow[ByteString]
-              .map { e =>
-                speedup.set(50)
-                speedup2.set(50)
-                Some(e)
-              }
-              .keepAlive(10.millis, () => {
-                val s = speedup.transformAndExtract(e => if (e == 0) (0, 0) else (e, e - 1))
-                if (s > 0) Some(ByteString.empty) else None
-              })
-              .keepAlive(100.millis, () => {
-                val s = speedup2.transformAndExtract(e => if (e == 0) (0, 0) else (e, e - 1))
-                if (s > 0) Some(ByteString.empty) else None
-              })
-              .mapConcat[ByteString](_.toList)
-            )
+            .map(Some(_))
+            .keepAlive(5.millis, { () =>
+              if (signalHttpResponse.getAndSet(false)) Some(ByteString.empty)
+              else None
+            })
+            .map { e =>
+              connectionVeryActive.set(50)
+              connectionActive.set(50)
+              e
+            }
+            .keepAlive(10.millis, { () =>
+              val s = connectionVeryActive.transformAndExtract(e => if (e == 0) (0, 0) else (e, e - 1))
+              if (s > 0) Some(ByteString.empty) else None
+            })
+            .keepAlive(100.millis, { () =>
+              val s = connectionActive.transformAndExtract(e => if (e == 0) (0, 0) else (e, e - 1))
+              if (s > 0) Some(ByteString.empty) else None
+            })
+            .mapConcat[ByteString](_.toList)
             .keepAlive(1000.millis, () => ByteString.empty)
             .map { e => if (e.nonEmpty) system.log.info("SEND"); e }
             .mapConcat(data => if (data.isEmpty) List(data) else data.grouped(maxHttpPacketSize).toList)
-            .backpressureTimeout(10.second)
             .via(httpConnection)
-            .backpressureTimeout(10.second)
-            .alsoTo(Flow[ByteString].map(_ => ()).to(httpResponseSignalInlet))
             .filter(_.nonEmpty)
+            .map { e => signalHttpResponse.set(true); e }
+            //.alsoTo(Flow[ByteString].map(_ => ()).to(httpResponseSignalInlet))
             .join {
-              Flow[ByteString]
-                .map { e => system.log.info("REC " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-                .backpressureTimeout(10.second)
-                .via(tcpConnection.flow)
-                .backpressureTimeout(10.second)
-                .filter(_.nonEmpty)
-                .map { e => system.log.info("SND " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
-            }
+            Flow[ByteString]
+              .map { e => system.log.info("REC " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+              .via(tcpConnection.flow)
+              .backpressureTimeout(10.second)
+              .filter(_.nonEmpty)
+              .map { e => system.log.info("SND " + time + " " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+          }
             .run()
 
         }).run().map { e => println(e); e }
