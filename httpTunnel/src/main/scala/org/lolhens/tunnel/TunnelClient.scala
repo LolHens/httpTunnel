@@ -15,12 +15,12 @@ import scala.util.Try
 
 object TunnelClient extends Tunnel {
   def main(args: Array[String]): Unit = {
-    for {
+    (for {
       tunnelServer <- parseAuthority(args(0))
       targetSocket <- parseAuthority(args(1))
       localPort <- Try(args(2).toInt).toOption
       proxyOption = args.lift(3).flatMap(parseAuthority)
-    } {
+    } yield {
       val server = proxyOption.getOrElse(tunnelServer)
       println(server)
 
@@ -89,6 +89,13 @@ object TunnelClient extends Tunnel {
       tcpServer
         .flatMap(_.unbind())
         .onComplete(_ => system.terminate())
+    }).getOrElse {
+      println(
+        """Parameters:
+          |  host:port   tunnelServer
+          |  host:port   target
+          |  port        localPort
+          |  [host:port] proxy""".stripMargin)
     }
   }
 }
