@@ -68,6 +68,10 @@ object TunnelClient extends Tunnel {
             .keepAlive(1000.millis, () => ByteString.empty)
             .map { e => if (e.nonEmpty) system.log.info("SEND"); e }
             .mapConcat(data => if (data.isEmpty) List(data) else data.grouped(maxHttpPacketSize).toList)
+            .map(data =>
+              if (data.isEmpty) data
+              else LZ4Compressor.compress(data)
+            )
             .via(httpConnection)
             .filter(_.nonEmpty)
             .map { e => signalHttpResponse.set(true); e }

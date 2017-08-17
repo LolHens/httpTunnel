@@ -63,10 +63,14 @@ object TunnelServer extends Tunnel {
           target <- pathParts.lift(1).flatMap(parseAuthority)
           connection = ConnectionManager.get(id, target)
         } yield for {
-          data <- entity.dataBytes
+          compressedData <- entity.dataBytes
             .limit(maxHttpPacketSize)
             .toMat(Sink.fold(ByteString.empty)(_ ++ _))(Keep.right)
             .run()
+          data = {
+            if (compressedData.isEmpty) data
+            else LZ4Compressor.decompress(compressedData)
+          }
           _ <- connection.push(data)
           out = connection.pull()
         } yield {

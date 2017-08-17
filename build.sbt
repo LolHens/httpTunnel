@@ -28,7 +28,10 @@ lazy val httpTunnel = project
   .settings(
     libraryDependencies ++= Seq(
       "com.typesafe.akka" %% "akka-http" % "10.0.9",
-      "io.monix" %% "monix" % "2.3.0"
+      "org.scodec" %% "scodec-bits" % "1.1.5",
+      "org.scodec" %% "scodec-akka" % "0.3.0",
+      "io.monix" %% "monix" % "2.3.0",
+      "org.lz4" % "lz4-java" % "1.4.0"
     ),
 
     mainClass in Compile := Some("org.lolhens.tunnel.TunnelClient")
