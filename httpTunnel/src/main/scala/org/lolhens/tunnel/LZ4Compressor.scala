@@ -13,21 +13,21 @@ object LZ4Compressor {
 
   private val noCompressionMarker = bin"10000000".toByteVector
 
-  def compress(data: ByteVector): ByteVector = {
-    val compressed = ByteVector.view(compressor.compress(data.toArray))
-    val size = data.size.toInt
-    if (compressed.size < data.size && size >= 0)
+  def compress(uncompressed: ByteVector): ByteVector = {
+    val compressed = ByteVector.view(compressor.compress(uncompressed.toArray))
+    val size = uncompressed.size.toInt
+    if (size >= 0 && compressed.size + 3 < uncompressed.size)
       ByteVector.fromInt(size) ++ compressed
     else
-      noCompressionMarker ++ data
+      noCompressionMarker ++ uncompressed
   }
 
-  def decompress(data: ByteVector): ByteVector =
-    if (data.take(1) === noCompressionMarker)
-      data.drop(1)
+  def decompress(compressed: ByteVector): ByteVector =
+    if (compressed.take(1) === noCompressionMarker)
+      compressed.drop(1)
     else {
-      val size = data.take(4).toInt()
-      ByteVector.view(decompressor.decompress(data.drop(4).toArray, size))
+      val size = compressed.take(4).toInt()
+      ByteVector.view(decompressor.decompress(compressed.drop(4).toArray, size))
     }
 
   def compress(data: ByteString): ByteString = compress(data.toByteVector).toByteString
