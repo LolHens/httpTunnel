@@ -1,7 +1,6 @@
 package org.lolhens.tunnel
 
 import akka.util.ByteString
-import monix.execution.atomic.Atomic
 import net.jpountz.lz4.LZ4Factory
 import scodec.bits._
 import scodec.interop.akka._
@@ -31,17 +30,7 @@ object LZ4Compressor {
       ByteVector.view(decompressor.decompress(data.drop(4).toArray, size))
     }
 
-  //val ratio = Atomic((0L, 0L))
-
-  def compress(data: ByteString): ByteString = {
-    val r = compress(data.toByteVector).toByteString
-    /*ratio.transform {
-      case (uncomp, comp) =>
-        println(comp.toDouble / uncomp.toDouble)
-        (uncomp + data.size, comp + r.size)
-    }*/
-    r
-  }
+  def compress(data: ByteString): ByteString = compress(data.toByteVector).toByteString
 
   def decompress(data: ByteString): ByteString = decompress(data.toByteVector).toByteString
 }
