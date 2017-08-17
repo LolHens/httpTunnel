@@ -68,7 +68,7 @@ object TunnelServer extends Tunnel {
             .toMat(Sink.fold(ByteString.empty)(_ ++ _))(Keep.right)
             .run()
           data = {
-            if (compressedData.isEmpty) data
+            if (compressedData.isEmpty) compressedData
             else LZ4Compressor.decompress(compressedData)
           }
           _ <- connection.push(data)
