@@ -28,6 +28,7 @@ object TunnelClient extends Tunnel {
         .to(Sink.foreach { tcpConnection =>
           val id = UUID.randomUUID().toString
 
+          system.log.info("NEW CONNECTION: " + id)
           val httpConnection = Flow[ByteString]
             .map(data => HttpRequest(
               method = HttpMethods.POST,

@@ -13,6 +13,8 @@ addSbtPlugin("net.virtual-void" % "sbt-dependency-graph" % "0.8.2")
 
 addSbtPlugin("com.typesafe.sbteclipse" % "sbteclipse-plugin" % "5.0.1")
 
+addSbtPlugin("org.lolhens" % "sbt-assembly-minifier" % "0.5.1")
+
 addSbtPlugin("com.lucidchart" % "sbt-cross" % "3.0")
 
 addSbtPlugin("org.scala-native" % "sbt-crossproject" % "0.2.0")
