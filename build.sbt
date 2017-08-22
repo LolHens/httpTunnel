@@ -3,7 +3,7 @@ name := (name in ThisBuild).value
 inThisBuild(Seq(
   name := "httpTunnel",
   organization := "org.lolhens",
-  version := "0.0.0",
+  version := "0.1.0",
 
   scalaVersion := "2.12.3",
 
@@ -12,9 +12,7 @@ inThisBuild(Seq(
     Resolver.url("artifactory-ivy", url("http://lolhens.no-ip.org/artifactory/ivy-public/"))(Resolver.ivyStylePatterns)
   ),
 
-  scalacOptions ++= Seq("-Xmax-classfile-name", "254"),
-
-  publishTo := Some(Resolver.file("file", new File("target/releases")))
+  scalacOptions ++= Seq("-Xmax-classfile-name", "127")
 ))
 
 lazy val root = project.in(file("."))
