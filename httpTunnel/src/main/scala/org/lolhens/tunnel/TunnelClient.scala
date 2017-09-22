@@ -42,32 +42,58 @@ object TunnelClient extends Tunnel {
               case _ => Source.empty[ByteString]
             }
 
-          val signalHttpResponse = Atomic(false)
-          val connectionVeryActive = Atomic(0)
-          val connectionActive = Atomic(0)
+          val atomicTryReceive = Atomic(0)
+
+          val atomicReceivedPackets = Atomic(0L)
+
+          val averageInterval = 1000
+          val atomicLastAveraged = Atomic(System.currentTimeMillis())
+          val atomicLastReceiveRate = Atomic(0D)
+
+          val atomicLastSent = Atomic(System.currentTimeMillis())
+
+          val Signal = Some(ByteString.empty)
 
           Flow[ByteString]
+            .map { e => atomicTryReceive.set(5); e }
             .map(Some(_))
             .keepAlive(5.millis, { () =>
-              if (signalHttpResponse.getAndSet(false)) Some(ByteString.empty)
+              if (atomicTryReceive.getAndTransform(e => if (e == 0) 0 else e - 1) > 0) Signal
               else None
             })
-            .map { e =>
-              connectionVeryActive.set(50)
-              connectionActive.set(50)
-              e
-            }
-            .keepAlive(10.millis, { () =>
-              val s = connectionVeryActive.transformAndExtract(e => if (e == 0) (0, 0) else (e, e - 1))
-              if (s > 0) Some(ByteString.empty) else None
+            .filter(_.nonEmpty)
+            .keepAlive(5.millis, { () =>
+              val time = System.currentTimeMillis()
+
+              val lastAverageDelta = atomicLastAveraged.transformAndExtract { lastAveraged =>
+                val delta = time - lastAveraged
+                if (delta >= averageInterval) (delta, time)
+                else (delta, lastAveraged)
+              }
+
+              val receiveRate: Double =
+                if (lastAverageDelta >= averageInterval) {
+                  val receiveRate = atomicReceivedPackets.getAndSet(0).toDouble / lastAverageDelta
+                  atomicLastReceiveRate.set(receiveRate)
+                  receiveRate
+                } else {
+                  val lastReceiveRate = atomicLastReceiveRate.get
+                  val receiveRate = atomicReceivedPackets.get.toDouble / lastAverageDelta
+                  (lastReceiveRate * (averageInterval - lastAverageDelta) +
+                    receiveRate * lastAverageDelta) / averageInterval
+                }
+
+              val sendInterval = (1D / (receiveRate * 4)).toInt
+
+              if (atomicLastSent.transformAndExtract(lastSent =>
+                if (lastSent >= sendInterval) (true, time) else (false, lastSent)
+              )) Signal
+              else None
             })
-            .keepAlive(100.millis, { () =>
-              val s = connectionActive.transformAndExtract(e => if (e == 0) (0, 0) else (e, e - 1))
-              if (s > 0) Some(ByteString.empty) else None
-            })
-            .mapConcat[ByteString](_.toList)
+            .filter(_.nonEmpty)
+            .map(_.get)
             .keepAlive(1000.millis, () => ByteString.empty)
-            .map { e => if (e.nonEmpty) system.log.info("SEND"); e }
+            .map { e => if (e.nonEmpty) system.log.debug("SEND"); e }
             .mapConcat(data => if (data.isEmpty) List(data) else data.grouped(maxHttpPacketSize).toList)
             .map(data =>
               if (data.isEmpty) data
@@ -75,14 +101,14 @@ object TunnelClient extends Tunnel {
             )
             .via(httpConnection)
             .filter(_.nonEmpty)
-            .map { e => signalHttpResponse.set(true); e }
+            .map { e => atomicReceivedPackets.increment(); e }
             .join {
               Flow[ByteString]
-                .map { e => system.log.info("REC " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+                .map { e => system.log.debug("REC " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
                 .via(tcpConnection.flow)
                 .backpressureTimeout(10.second)
                 .filter(_.nonEmpty)
-                .map { e => system.log.info("SND " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
+                .map { e => system.log.debug("SND " + id + " " + e.size + ":" + toBase64(e).utf8String); e }
             }
             .run()
 
