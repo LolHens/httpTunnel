@@ -46,7 +46,7 @@ object TunnelClient extends Tunnel {
 
           val atomicReceivedPackets = Atomic(0L)
 
-          val averageInterval = 1000
+          val averageInterval = 500
           val atomicLastAveraged = Atomic(System.currentTimeMillis())
           val atomicLastReceiveRate = Atomic(0D)
 

@@ -5,9 +5,9 @@ inThisBuild(Seq(
   organization := "org.lolhens",
   version := "0.1.0",
 
-  scalaVersion := "2.12.3",
+  scalaVersion := "2.12.4",
 
-  externalResolvers := Seq(
+  resolvers ++= Seq(
     "artifactory-maven" at "http://lolhens.no-ip.org/artifactory/maven-public/",
     Resolver.url("artifactory-ivy", url("http://lolhens.no-ip.org/artifactory/ivy-public/"))(Resolver.ivyStylePatterns)
   ),
@@ -25,7 +25,7 @@ lazy val httpTunnel = project
   .settings(name := (name in ThisBuild).value)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-http" % "10.0.9",
+      "com.typesafe.akka" %% "akka-http" % "10.0.10",
       "org.scodec" %% "scodec-bits" % "1.1.5",
       "org.scodec" %% "scodec-akka" % "0.3.0",
       "io.monix" %% "monix" % "2.3.0",
