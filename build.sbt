@@ -28,9 +28,13 @@ lazy val httpTunnel = project
       "com.typesafe.akka" %% "akka-http" % "10.0.10",
       "org.scodec" %% "scodec-bits" % "1.1.5",
       "org.scodec" %% "scodec-akka" % "0.3.0",
-      "io.monix" %% "monix" % "2.3.0",
+      "org.http4s" %% "http4s-dsl" % "0.18.4",
+      "org.http4s" %% "http4s-blaze-server" % "0.18.4",
+      "io.monix" %% "monix" % "3.0.0-RC1",
       "org.lz4" % "lz4-java" % "1.4.0"
     ),
+
+    addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.2.0"),
 
     mainClass in Compile := Some("org.lolhens.tunnel.TunnelClient")
   )
