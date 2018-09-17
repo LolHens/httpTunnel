@@ -1,6 +1,7 @@
 package org.lolhens.tunnel
 
 import akka.http.scaladsl.model.ws.WebSocketRequest
+import akka.http.scaladsl.settings.{ClientConnectionSettings, ConnectionPoolSettings}
 import akka.http.scaladsl.{ClientTransport, Http}
 import akka.stream.scaladsl.{Sink, Tcp}
 
@@ -15,16 +16,23 @@ object WebsocketTunnelClient extends Tunnel {
       localPort <- Try(args(2).toInt).toOption
       proxyOption = args.lift(3).flatMap(parseSocketAddress)
     } {
+      val settings = proxyOption match {
+        case Some(proxy) =>
+          val proxyTransport = ClientTransport.httpsProxy(proxy)
+          ClientConnectionSettings(system).withTransport(proxyTransport)
+
+        case None =>
+          ClientConnectionSettings(system)
+      }
+
       val tcpServer = Tcp().bind("localhost", localPort).to(Sink.foreach { connection =>
         //println(connection)
-        val webSocket = HttpHelper(Http()).singleWebSocketRequest(
+        val webSocket = Http().singleWebSocketRequest(
+          settings = settings,
           request = WebSocketRequest(s"wss://$tunnelServer/${socketAddress.getHostString}:${socketAddress.getPort}",
             extraHeaders = List(
               header("Proxy-Connection", "keep-alive")
             )),
-          transport = proxyOption
-            .map(proxy => proxyTransport(proxy.getHostString, proxy.getPort))
-            .getOrElse(ClientTransport.TCP),
           clientFlow = messageToByteString
             //.map { bytes => println("recv " + bytes.utf8String); bytes }
             .via(connection.flow)

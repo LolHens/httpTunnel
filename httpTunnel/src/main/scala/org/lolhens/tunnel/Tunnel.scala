@@ -103,15 +103,13 @@ class Tunnel {
   @deprecated
   def singleHttpRequest(host: String, port: Int,
                         request: HttpRequest,
-                        transport: ClientTransport = ClientTransport.TCP,
                         connectionContext: ConnectionContext = Http().defaultServerHttpContext,
                         settings: ClientConnectionSettings = ClientConnectionSettings(system),
                         log: LoggingAdapter = system.log): Future[HttpResponse] =
     Source.single(request)
       .via(
-        Http().outgoingConnectionUsingTransport(
+        Http().outgoingConnectionUsingContext(
           host, port,
-          transport = transport,
           connectionContext = connectionContext,
           settings = settings,
           log = log

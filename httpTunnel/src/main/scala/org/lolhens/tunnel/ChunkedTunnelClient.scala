@@ -28,9 +28,8 @@ object ChunkedTunnelClient extends Tunnel {
 
     Source.single(streamingRequest)
       .via(
-        Http().outgoingConnectionUsingTransport(
+        Http().outgoingConnectionUsingContext(
           host, port,
-          transport = transport,
           connectionContext = connectionContext,
           settings = settings,
           log = log

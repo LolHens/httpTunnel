@@ -1,7 +1,7 @@
 inThisBuild(Seq(
   name := "httpTunnel",
   organization := "org.lolhens",
-  version := "0.1.1",
+  version := "0.1.3",
 
   scalaVersion := "2.12.6",
 
@@ -25,7 +25,8 @@ lazy val httpTunnel = project
   .settings(name := (ThisBuild / name).value)
   .settings(
     libraryDependencies ++= Seq(
-      "com.typesafe.akka" %% "akka-http" % "10.0.14",
+      "com.typesafe.akka" %% "akka-http" % "10.1.5",
+      "com.typesafe.akka" %% "akka-stream" % "2.5.16",
       "org.scodec" %% "scodec-bits" % "1.1.6",
       "org.scodec" %% "scodec-akka" % "0.3.0",
       "org.http4s" %% "http4s-dsl" % "0.18.17",
@@ -36,5 +37,17 @@ lazy val httpTunnel = project
 
     addCompilerPlugin("com.olegpy" %% "better-monadic-for" % "0.2.4"),
 
-    Compile / mainClass := Some("org.lolhens.tunnel.WebsocketTunnelClient")
+    Compile / mainClass := Some("org.lolhens.tunnel.WebsocketTunnelClient"),
+
+    assembly / assemblyOption := (assembly / assemblyOption).value
+      .copy(prependShellScript = Some(AssemblyPlugin.defaultUniversalScript(shebang = false))),
+
+    assembly / assemblyJarName := s"TunnelClient-${version.value}.sh.bat",
+
+    assembly / assemblyMergeStrategy := {
+      case "module-info.class" => MergeStrategy.discard
+      case x =>
+        val oldStrategy = (assembly / assemblyMergeStrategy).value
+        oldStrategy(x)
+    }
   )
