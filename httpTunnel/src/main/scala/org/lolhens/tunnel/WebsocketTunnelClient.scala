@@ -16,7 +16,8 @@ object WebsocketTunnelClient extends Tunnel {
       proxyOption = args.lift(3).flatMap(parseSocketAddress)
     } {
       val tcpServer = Tcp().bind("localhost", localPort).to(Sink.foreach { connection =>
-        HttpHelper(Http()).singleWebSocketRequest(
+        //println(connection)
+        val webSocket = HttpHelper(Http()).singleWebSocketRequest(
           request = WebSocketRequest(s"wss://$tunnelServer/${socketAddress.getHostString}:${socketAddress.getPort}",
             extraHeaders = List(
               header("Proxy-Connection", "keep-alive")
@@ -25,9 +26,12 @@ object WebsocketTunnelClient extends Tunnel {
             .map(proxy => proxyTransport(proxy.getHostString, proxy.getPort))
             .getOrElse(ClientTransport.TCP),
           clientFlow = messageToByteString
+            //.map { bytes => println("recv " + bytes.utf8String); bytes }
             .via(connection.flow)
+            //.map { bytes => println("send " + bytes.utf8String); bytes }
             .via(byteStringToMessage)
-        )
+        )._1
+        webSocket.foreach(println)
       }).run()
 
       println(s"Server online at tcp://localhost:${socketAddress.getPort}/\nPress RETURN to stop...")
